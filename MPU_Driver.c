@@ -9,19 +9,17 @@
 
 static void Register_Initialization();
 static void I2C_Initialization(uint8_t I2Cx);
-static void MPU_WRITE(MPU_REGISTER mpu_r);
-static uint8_t MPU_READ(MPU_REGISTER mpu_r, uint8_t data_register);
+void MPU_WRITE(MPU_REGISTER mpu_r);
+uint8_t MPU_READ(MPU_REGISTER mpu_r);
 
 /*
  * 	MPU initializatiion, if i2c.register_address = 0x.register_address = 0x1, I2C1 will be used, if i2c.register_address = 0x.register_address = 0xk, I2Ck will be used
  *	mpu_i2c_addr = 0, if the desired mpu i2c address is 0x68 (AD0 pin LOW)
  *	mpu_i2c_addr = 1, if the desired mpu i2c address is 0x69 (AD0 pin HIGH)
  *
- *
  */
+void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale){
 
-void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr){
-	uint8_t teste;
 	I2C_Initialization(i2c);
 
 	if(mpu_i2c_addr == USE_ADDR1)
@@ -32,6 +30,37 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr){
 
 	Register_Initialization();
 
+	ACCEL_CONFIG.data_cmd |= accel_scale 	<< 3;
+	GYRO_CONFIG.data_cmd  |= gyro_scale     << 3;
+
+	if(accel_scale == ACCEL_FULL_SCALE_16g){
+		accel_sensitivity_used = 2048;
+	}
+	else if(accel_scale == ACCEL_FULL_SCALE_8g){
+		accel_sensitivity_used = 4096;
+	}
+	else if(accel_scale == ACCEL_FULL_SCALE_4g){
+		accel_sensitivity_used = 8192;
+	}
+	else{
+		accel_sensitivity_used = 16384;
+	}
+
+	if(gyro_scale == GYRO_FULL_SCALE_2000dps){
+		gyro_sensitivity_used = 16,4;
+	}
+	else if(gyro_scale == GYRO_FULL_SCALE_1000dps){
+		gyro_sensitivity_used = 32,8;
+	}
+	else if(gyro_scale == GYRO_FULL_SCALE_500dps){
+		gyro_sensitivity_used = 65,5;
+	}
+	else{
+		gyro_sensitivity_used = 131;
+	}
+
+	MPU_WRITE(ACCEL_CONFIG);
+	MPU_WRITE(GYRO_CONFIG);
 }
 
 static void Register_Initialization(){
@@ -162,11 +191,19 @@ static void I2C_Initialization(uint8_t I2Cx){
 	HAL_I2C_Init(&mpu_i2c_comm);
 }
 
-static void MPU_WRITE(MPU_REGISTER mpu_r){
+/*			MPU_WRITE is used by the high-level methods for send configuration parameters
+ * 			The user can change by itself some registers just writing the corrects parameters
+ * 			at the buffer of the desired command
+ */
+void MPU_WRITE(MPU_REGISTER mpu_r){
 	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&mpu_r, sizeof(mpu_r), HAL_MAX_DELAY);
 }
 
-static uint8_t MPU_READ(MPU_REGISTER mpu_r){
+
+/*			MPU_READ is used by the high-level methods, like MPU_ReadAccelerometer, for read configuration parameters and data registers
+ * 			The user can read by itself some device register just by sending the desired address registers
+ */
+uint8_t MPU_READ(MPU_REGISTER mpu_r){
 
 	uint8_t data_register;
 
@@ -219,8 +256,8 @@ uint16_t MPU_ReadIC_Temperature(){
 
 	data_return = MPU_READ(TEMP_OUT_H) << 8;
 	data_return = MPU_READ(TEMP_OUT_L);
+	return data_return;
 }
-
 
 /*
  * 		Return the identity of the device
@@ -231,3 +268,25 @@ uint8_t MPU_Identity(){
 	data_return = MPU_READ(WHO_AM_I);
 	return data_return;
 }
+
+void MPU_ChangeAccelScale(MPU_ACCEL_SCALE new_scale){
+	ACCEL_CONFIG.data_cmd |= new_scale << 3;
+	MPU_WRITE(ACCEL_CONFIG);
+}
+
+void MPU_ChangeGyroScale(MPU_GYRO_SCALE new_scale){
+	GYRO_CONFIG.data_cmd |= new_scale << 3;
+	MPU_WRITE(GYRO_CONFIG);
+}
+
+float MPU_TransformAccelRead(uint16_t data_read){
+
+	return data_read * (1/accel_sensitivity_used);
+}
+
+float MPU_TransformGyroRead(uint16_t data_read){
+
+	return data_read * (1/gyro_sensitivity_used);
+}
+
+

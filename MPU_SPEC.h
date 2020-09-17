@@ -11,6 +11,8 @@
 #include "stm32f4xx_hal.h"
 #include <stdint.h>
 
+//	Global definition
+
 #define USE_ADDR1 1
 #define USE_ADDR2 2
 
@@ -25,11 +27,37 @@
 #define Y_AXIS   2
 #define Z_AXIS   3
 
+/*
+ * 		Acceleration
+ * 		TODO
+ *
+ */
+typedef enum{
+	 ACCEL_FULL_SCALE_2g   =	00,
+	 ACCEL_FULL_SCALE_4g   =	01,
+	 ACCEL_FULL_SCALE_8g   = 	10,
+	 ACCEL_FULL_SCALE_16g  =	11
+}MPU_ACCEL_SCALE;
+
+uint16_t accel_sensitivity_used;
+
+/*
+ * 		Gyroscope
+ * 		TODO
+ */
+typedef enum{
+	 GYRO_FULL_SCALE_250dps  =  00,
+	 GYRO_FULL_SCALE_500dps	 = 	01,
+	 GYRO_FULL_SCALE_1000dps =  10,
+	 GYRO_FULL_SCALE_2000dps =  11
+}MPU_GYRO_SCALE;
+
+float gyro_sensitivity_used;
+
 typedef struct {
 	uint8_t register_address;
 	uint8_t data_cmd;
 }MPU_REGISTER;
-
 
 I2C_HandleTypeDef mpu_i2c_comm;
 uint8_t addr_used;									// holds the mpu i2c address
@@ -135,12 +163,16 @@ MPU_REGISTER YA_OFFSET_L;
 MPU_REGISTER ZA_OFFSET_H;
 MPU_REGISTER ZA_OFFSET_L;
 
-void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr);
+void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale);
+void MPU_ChangeAccelScale(MPU_ACCEL_SCALE new_scale);
+void MPU_ChangeGyroScale(MPU_GYRO_SCALE new_scale);
 
 uint16_t MPU_ReadAccelerometer(uint8_t axis);
 uint16_t MPU_ReadGyro(uint8_t axis);
-uint16_t MPU_ReadIC_Temperature(uint8_t axis);
+uint16_t MPU_ReadIC_Temperature();
 uint8_t MPU_Identity();
+float MPU_TransformAccelRead(uint16_t data_read);
+float MPU_TransformGyroRead(uint16_t data_read);
 
 
 #endif /* INC_MPU_SPEC_H_ */
