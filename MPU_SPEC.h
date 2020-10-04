@@ -27,10 +27,17 @@
 #define Y_AXIS   2
 #define Z_AXIS   3
 
+I2C_HandleTypeDef mpu_i2c_comm;						//Holds the i2c peripheral registers used by the mcu to connect with MPU
+uint8_t addr_used;									// holds the mpu i2c address
+
 /*
- * 		Acceleration
- * 		TODO
+ *	All of accelerometer specific definition will be placed at this place
  *
+ */
+#define SI_ACCELERATION 		9.806				//acceleration in international system of units 1g = 9.8 m/s^2
+
+/*
+ * Specify all of sensitivity available by the MPU-9250 accelerometer
  */
 typedef enum{
 	 ACCEL_FULL_SCALE_2g   =	00,
@@ -39,11 +46,11 @@ typedef enum{
 	 ACCEL_FULL_SCALE_16g  =	11
 }MPU_ACCEL_SCALE;
 
-uint16_t accel_sensitivity_used;
+uint16_t accel_sensitivity_used;			  //Currently accelerometer sensitivity used by the MPU
+
 
 /*
- * 		Gyroscope
- * 		TODO
+ * 	 All of gyroscope specific definition will be placed at this place
  */
 typedef enum{
 	 GYRO_FULL_SCALE_250dps  =  00,
@@ -52,16 +59,17 @@ typedef enum{
 	 GYRO_FULL_SCALE_2000dps =  11
 }MPU_GYRO_SCALE;
 
-float gyro_sensitivity_used;
+float gyro_sensitivity_used;			//Currently gyroscope sensitivity used by the MPU
 
 typedef struct {
-	uint8_t register_address;
-	uint8_t data_cmd;
+	uint8_t register_address;			//holds the i2c address of the internal register
+	uint8_t data_cmd;					//holds information that will be send to make some register configuration
 }MPU_REGISTER;
 
-I2C_HandleTypeDef mpu_i2c_comm;
-uint8_t addr_used;									// holds the mpu i2c address
 
+/*
+ * MPU-9250 available registers
+*/
 MPU_REGISTER SELF_TEST_X_GYRO;
 MPU_REGISTER SELF_TEST_Y_GYRO;
 MPU_REGISTER SELF_TEST_Z_GYRO;
@@ -98,6 +106,7 @@ MPU_REGISTER I2C_SLV3_CTRL;
 MPU_REGISTER I2C_SLV4_ADDR;
 MPU_REGISTER I2C_SLV4_REG;
 MPU_REGISTER I2C_SLV4_DO;
+MPU_REGISTER I2C_SLV4_CTRL;
 MPU_REGISTER I2C_SLV4_DI;
 MPU_REGISTER I2C_MST_STATUS;
 MPU_REGISTER INT_PIN_CFG;
@@ -163,16 +172,19 @@ MPU_REGISTER YA_OFFSET_L;
 MPU_REGISTER ZA_OFFSET_H;
 MPU_REGISTER ZA_OFFSET_L;
 
+/*
+ * Driver functions
+*/
 void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale);
 void MPU_ChangeAccelScale(MPU_ACCEL_SCALE new_scale);
 void MPU_ChangeGyroScale(MPU_GYRO_SCALE new_scale);
 
-uint16_t MPU_ReadAccelerometer(uint8_t axis);
-uint16_t MPU_ReadGyro(uint8_t axis);
-uint16_t MPU_ReadIC_Temperature();
+int16_t MPU_ReadAccelerometer(uint8_t axis);
+int16_t MPU_ReadGyro(uint8_t axis);
+int16_t MPU_ReadIC_Temperature();
 uint8_t MPU_Identity();
-float MPU_TransformAccelRead(uint16_t data_read);
-float MPU_TransformGyroRead(uint16_t data_read);
+float MPU_TransformAccelRead(int16_t raw_data_read);
+float MPU_TransformGyroRead(int16_t raw_data_read);
 
 
 #endif /* INC_MPU_SPEC_H_ */

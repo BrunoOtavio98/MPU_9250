@@ -1,2 +1,1 @@
-# MPU_9250
-Driver of MPU9250 using HAL library
+Driver of MPU9250 for STM32 boards using HAL library

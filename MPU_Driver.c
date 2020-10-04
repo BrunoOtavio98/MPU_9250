@@ -9,14 +9,19 @@
 
 static void Register_Initialization();
 static void I2C_Initialization(uint8_t I2Cx);
+static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale);
+static void GyroScaleConfig(MPU_GYRO_SCALE gyro_scale);
+
 void MPU_WRITE(MPU_REGISTER mpu_r);
 uint8_t MPU_READ(MPU_REGISTER mpu_r);
 
 /*
- * 	MPU initializatiion, if i2c.register_address = 0x.register_address = 0x1, I2C1 will be used, if i2c.register_address = 0x.register_address = 0xk, I2Ck will be used
- *	mpu_i2c_addr = 0, if the desired mpu i2c address is 0x68 (AD0 pin LOW)
- *	mpu_i2c_addr = 1, if the desired mpu i2c address is 0x69 (AD0 pin HIGH)
+ * @brief: MPU initialization function
  *
+ * @param: i2c - Specify what i2c peripheral will be used, the values can be ( USE_I2C1, USE_I2C2 or USE_I2C3 )
+ * 		   mpu_i2c_addr - For choose what i2c address will be used, if AD0 = HIGH -> mpu_i2c_addr = ADDR_2, otherwise mpu_i2c_addr = ADDR_1
+ *		   accel_scale  - Specify the sensitivity of the accelerometer, choose a value at @MPU_ACCEL_SCALE enum
+ *		   gyro_scale   - Specify the sensitivity of the gyroscope, choose a value at @MPU_GYRO_SCALE enum
  */
 void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale){
 
@@ -33,36 +38,17 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MP
 	ACCEL_CONFIG.data_cmd |= accel_scale 	<< 3;
 	GYRO_CONFIG.data_cmd  |= gyro_scale     << 3;
 
-	if(accel_scale == ACCEL_FULL_SCALE_16g){
-		accel_sensitivity_used = 2048;
-	}
-	else if(accel_scale == ACCEL_FULL_SCALE_8g){
-		accel_sensitivity_used = 4096;
-	}
-	else if(accel_scale == ACCEL_FULL_SCALE_4g){
-		accel_sensitivity_used = 8192;
-	}
-	else{
-		accel_sensitivity_used = 16384;
-	}
-
-	if(gyro_scale == GYRO_FULL_SCALE_2000dps){
-		gyro_sensitivity_used = 16,4;
-	}
-	else if(gyro_scale == GYRO_FULL_SCALE_1000dps){
-		gyro_sensitivity_used = 32,8;
-	}
-	else if(gyro_scale == GYRO_FULL_SCALE_500dps){
-		gyro_sensitivity_used = 65,5;
-	}
-	else{
-		gyro_sensitivity_used = 131;
-	}
+	AccelScaleConfig(accel_scale);
+	GyroScaleConfig(gyro_scale);
 
 	MPU_WRITE(ACCEL_CONFIG);
 	MPU_WRITE(GYRO_CONFIG);
 }
 
+/*
+ *  @brief: Internal driver function, used to initialize all of MPU registers
+ *
+ */
 static void Register_Initialization(){
 
 	 SELF_TEST_X_GYRO.register_address		= 0x00;
@@ -101,25 +87,25 @@ static void Register_Initialization(){
 	 I2C_SLV4_ADDR.register_address 		= 0x31;
 	 I2C_SLV4_REG.register_address	 		= 0x32;
 	 I2C_SLV4_DO.register_address 			= 0x33;
-	 I2C_SLV4_DI.register_address 			= 0x34;
-	 I2C_MST_STATUS.register_address 		= 0x35;
-	 INT_PIN_CFG.register_address 			= 0x36;
-	 INT_ENABLE.register_address 			= 0x37;
-	 INT_STATUS.register_address 			= 0x38;
-	 ACCEL_XOUT_H.register_address 			= 0x3A;
-	 ACCEL_XOUT_L.register_address 			= 0x3B;
-	 ACCEL_YOUT_H.register_address 			= 0x3C;
-	 ACCEL_YOUT_L.register_address 			= 0x3D;
-	 ACCEL_ZOUT_H.register_address 			= 0x3E;
-	 ACCEL_ZOUT_L.register_address 			= 0x3F;
-	 TEMP_OUT_H.register_address		 	= 0x40;
-	 TEMP_OUT_L.register_address 			= 0x41;
-	 GYRO_XOUT_H.register_address 			= 0x42;
-	 GYRO_XOUT_L.register_address 			= 0x43;
-	 GYRO_YOUT_H.register_address 			= 0x44;
-	 GYRO_YOUT_L.register_address 			= 0x45;
-	 GYRO_ZOUT_H.register_address 			= 0x46;
-	 ACCEL_CONFIG2.register_address 		= 0x47;
+	 I2C_SLV4_CTRL.register_address 		= 0x34;
+	 I2C_SLV4_DI.register_address 			= 0x35;
+	 I2C_MST_STATUS.register_address 		= 0x36;
+	 INT_PIN_CFG.register_address 			= 0x37;
+	 INT_ENABLE.register_address 			= 0x38;
+	 INT_STATUS.register_address 			= 0x3A;
+	 ACCEL_XOUT_H.register_address 			= 0x3B;
+	 ACCEL_XOUT_L.register_address 			= 0x3C;
+	 ACCEL_YOUT_H.register_address 			= 0x3D;
+	 ACCEL_YOUT_L.register_address 			= 0x3E;
+	 ACCEL_ZOUT_H.register_address 			= 0x3F;
+	 ACCEL_ZOUT_L.register_address 			= 0x40;
+	 TEMP_OUT_H.register_address		 	= 0x41;
+	 TEMP_OUT_L.register_address 			= 0x42;
+	 GYRO_XOUT_H.register_address 			= 0x43;
+	 GYRO_XOUT_L.register_address 			= 0x44;
+	 GYRO_YOUT_H.register_address 			= 0x45;
+	 GYRO_YOUT_L.register_address 			= 0x46;
+	 GYRO_ZOUT_H.register_address 			= 0x47;
 	 GYRO_ZOUT_L.register_address 			= 0x48;
 	 EXT_SENS_DATA_00.register_address 		= 0x49;
 	 EXT_SENS_DATA_01.register_address 		= 0x4A;
@@ -166,7 +152,10 @@ static void Register_Initialization(){
 	 ZA_OFFSET_H.register_address  			= 0x7D;
 	 ZA_OFFSET_L.register_address  			= 0x7E;
 }
-
+/*
+ * @brief: Internal driver function used to initialize the i2c peripheral chosen by the user
+ *
+ */
 static void I2C_Initialization(uint8_t I2Cx){
 
 	if(I2Cx == USE_I2C1){
@@ -179,29 +168,34 @@ static void I2C_Initialization(uint8_t I2Cx){
 	else{
 		mpu_i2c_comm.Instance = I2C3;
 	}
-	mpu_i2c_comm.Init.ClockSpeed = 100000;
-	mpu_i2c_comm.Init.DutyCycle = I2C_DUTYCYCLE_2;
-	mpu_i2c_comm.Init.OwnAddress1 = 0;
-	mpu_i2c_comm.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-	mpu_i2c_comm.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-	mpu_i2c_comm.Init.OwnAddress2 = 0;
-	mpu_i2c_comm.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-	mpu_i2c_comm.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+	mpu_i2c_comm.Init.ClockSpeed 		= 100000;
+	mpu_i2c_comm.Init.DutyCycle 		= I2C_DUTYCYCLE_2;
+	mpu_i2c_comm.Init.OwnAddress1 		= 0;
+	mpu_i2c_comm.Init.AddressingMode	= I2C_ADDRESSINGMODE_7BIT;
+	mpu_i2c_comm.Init.DualAddressMode 	= I2C_DUALADDRESS_DISABLE;
+	mpu_i2c_comm.Init.OwnAddress2 		= 0;
+	mpu_i2c_comm.Init.GeneralCallMode 	= I2C_GENERALCALL_DISABLE;
+	mpu_i2c_comm.Init.NoStretchMode 	= I2C_NOSTRETCH_DISABLE;
 
 	HAL_I2C_Init(&mpu_i2c_comm);
 }
 
-/*			MPU_WRITE is used by the high-level methods for send configuration parameters
- * 			The user can change by itself some registers just writing the corrects parameters
- * 			at the buffer of the desired command
+/*
+ * @brief:	MPU_WRITE is used by the high-level methods for send configuration parameters
+ * 			The user can change by itself some MPU registers just writing the corrects parameters
+ * 			at the buffer of the desired command.
+ * @param:  mpu_r - MPU specific register that will be write some configuration
  */
 void MPU_WRITE(MPU_REGISTER mpu_r){
 	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&mpu_r, sizeof(mpu_r), HAL_MAX_DELAY);
 }
 
 
-/*			MPU_READ is used by the high-level methods, like MPU_ReadAccelerometer, for read configuration parameters and data registers
+/* @brief:	MPU_READ is used by the high-level methods, like MPU_ReadAccelerometer, for read configuration parameters and data registers
  * 			The user can read by itself some device register just by sending the desired address registers
+ * @param:  mpu_r - MPU specific register that will be read some configuration or information
+ *
+ * @retval: Information read from the register specified at mpu_r parameter
  */
 uint8_t MPU_READ(MPU_REGISTER mpu_r){
 
@@ -212,55 +206,69 @@ uint8_t MPU_READ(MPU_REGISTER mpu_r){
 	return data_register;
 }
 
-uint16_t MPU_ReadAccelerometer(uint8_t axis){
+/*@brief: Function to read last accelerometer data
+ *@param: axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS144
+ *@retval: Raw information that is coming from MPU accelerometer ADC
+ */
+int16_t MPU_ReadAccelerometer(uint8_t axis){
 
-	uint16_t data_return;
+	int16_t data_return;
 
 	if(axis == X_AXIS){
-		data_return = MPU_READ(ACCEL_XOUT_H) << 8;
+		data_return = (int16_t)(MPU_READ(ACCEL_XOUT_H) << 8);
 		data_return |= MPU_READ(ACCEL_XOUT_L);
 	}
 	else if(axis == Y_AXIS){
-		data_return = MPU_READ(ACCEL_YOUT_H) << 8;
+		data_return = (int16_t)(MPU_READ(ACCEL_YOUT_H) << 8);
 		data_return |= MPU_READ(ACCEL_YOUT_L);
 	}
 	else{
-		data_return = MPU_READ(ACCEL_ZOUT_H) << 8;
+		data_return = (int16_t)(MPU_READ(ACCEL_ZOUT_H) << 8);
 		data_return |= MPU_READ(ACCEL_ZOUT_L);
 	}
 	return data_return;
 }
 
-uint16_t MPU_ReadGyro(uint8_t axis){
+/*@brief: Function to read last gyroscope data
+ *@param: axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS144
+ *@retval: Raw information that is coming from MPU gyroscope ADC
+ */
+int16_t MPU_ReadGyro(uint8_t axis){
 
-	uint16_t data_return;
+	int16_t data_return = 0;
 
 	if(axis == X_AXIS){
-		data_return = MPU_READ(GYRO_XOUT_H) << 8;
+		data_return = (int16_t)(MPU_READ(GYRO_XOUT_H) << 8);
 		data_return |= MPU_READ(GYRO_XOUT_L);
 	}
 	else if(axis == Y_AXIS){
-		data_return = MPU_READ(GYRO_YOUT_H) << 8;
+		data_return = (int16_t)(MPU_READ(GYRO_YOUT_H) << 8);
 		data_return |= MPU_READ(GYRO_YOUT_L);
 	}
 	else{
-		data_return = MPU_READ(GYRO_ZOUT_H) << 8;
+		data_return = (int16_t)(MPU_READ(GYRO_ZOUT_H) << 8);
 		data_return |= MPU_READ(GYRO_ZOUT_L);
 	}
 	return data_return;
 }
 
-uint16_t MPU_ReadIC_Temperature(){
+/*@brief: Function to read last temperature data
+ *
+ *@retval: Raw information that is coming from temperature register
+ */
+int16_t MPU_ReadIC_Temperature(){
 
-	uint16_t data_return;
+	int16_t data_return;
 
-	data_return = MPU_READ(TEMP_OUT_H) << 8;
-	data_return = MPU_READ(TEMP_OUT_L);
+	data_return = (int16_t)(MPU_READ(TEMP_OUT_H) << 8);
+	data_return |= MPU_READ(TEMP_OUT_L);
 	return data_return;
 }
 
 /*
- * 		Return the identity of the device
+ * @brief -	Return the device identity
+ *
+ * @retval - Device identity
  */
 uint8_t MPU_Identity(){
 	uint8_t data_return;
@@ -269,24 +277,85 @@ uint8_t MPU_Identity(){
 	return data_return;
 }
 
+/* @brief: Function used to change the sensitivity of the accelerometer at any desired instant
+ * @param: New sensitivity that will be used, can be one value of @MPU_ACCEL_SCALE enum
+ */
 void MPU_ChangeAccelScale(MPU_ACCEL_SCALE new_scale){
 	ACCEL_CONFIG.data_cmd |= new_scale << 3;
+
+	AccelScaleConfig(new_scale);
 	MPU_WRITE(ACCEL_CONFIG);
 }
 
+/* @brief: Function used to change the sensitivity of the gyroscope at any desired instant
+ * @param: New sensitivity that will be used, can be one value of @MPU_GYRO_SCALE enum
+ */
 void MPU_ChangeGyroScale(MPU_GYRO_SCALE new_scale){
 	GYRO_CONFIG.data_cmd |= new_scale << 3;
+
+	GyroScaleConfig(new_scale);
 	MPU_WRITE(GYRO_CONFIG);
 }
 
-float MPU_TransformAccelRead(uint16_t data_read){
+/*@param - accel_scale: A MPU_ACCEL_SCALE parameter that defines the accelerometer sensitivity
+ *
+ *@brief - Configure the accelerometer resolution
+ * 		   Greater the range that the accelerometer must read, smaller the resolution
+ */
+static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale){
 
-	return data_read * (1/accel_sensitivity_used);
+	if(accel_scale == ACCEL_FULL_SCALE_16g){
+		accel_sensitivity_used = 2048;
+	}
+	else if(accel_scale == ACCEL_FULL_SCALE_8g){
+		accel_sensitivity_used = 4096;
+	}
+	else if(accel_scale == ACCEL_FULL_SCALE_4g){
+		accel_sensitivity_used = 8192;
+	}
+	else{
+		accel_sensitivity_used = 16384;
+	}
 }
 
-float MPU_TransformGyroRead(uint16_t data_read){
+/*
+ * @param - gyro_scale: A MPU_GYRO_SCALE parameter tha defines the gyroscope sensitivity
+ *
+ * @brief Configure the gyroscope resolution
+ * 		  Greater the range that the gyroscope must read, smaller the resolution
+ */
+static void GyroScaleConfig(MPU_GYRO_SCALE gyro_scale){
 
-	return data_read * (1/gyro_sensitivity_used);
+
+	if(gyro_scale == GYRO_FULL_SCALE_2000dps){
+		gyro_sensitivity_used = 16.4;
+	}
+	else if(gyro_scale == GYRO_FULL_SCALE_1000dps){
+		gyro_sensitivity_used = 32.8;
+	}
+	else if(gyro_scale == GYRO_FULL_SCALE_500dps){
+		gyro_sensitivity_used = 65.5;
+	}
+	else{
+		gyro_sensitivity_used = 131;
+	}
 }
 
+/*
+ *@brief Change the information read by the accelerometer from ADC resolution to g
+ * 		 resolution = 1/accel_sensitivity
+ *
+ */
+float MPU_TransformAccelRead(int16_t raw_data_read){
+
+	return (float)(raw_data_read * (1.0/accel_sensitivity_used));
+}
+
+/*
+ * TODO
+ */
+float MPU_TransformGyroRead(int16_t raw_data_read){
+
+//	return (float)(raw_data_read * (1.0/gyro_sensitivity_used));
+}
 
