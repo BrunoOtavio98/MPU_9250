@@ -379,6 +379,34 @@ void MPU_AccelerometerLowPassFilterConfig(uint8_t ACCEL_FCHOICE, uint8_t A_DLPF_
 }
 
 /*
+ * @brief: Configuration of FIFO mode of operation and component enabling
+ * 			If:
+ *
+ * @param:
+ *				enable_mpu_components[7] = 1 ->  temperature data (TEMP_OUT_H, TEMP_OUT_L) will be buffered at fifo, even if data path is in standby
+ * 				enable_mpu_components[6] = 1 ->  Gyro X axis data (GYRO_XOUT_X, GYRO_XOUT_L)  will be buffered at fifo, even if data path is in standby
+ *				enable_mpu_components[5] = 1 ->  Gyro Y axis data (GYRO_YOUT_X, GYRO_YOUT_L)  will be buffered at fifo, even if data path is in standby
+ * 				enable_mpu_components[4] = 1 ->  Gyro Z axis data (GYRO_ZOUT_X, GYRO_ZOUT_L)  will be buffered at fifo, even if data path is in standby
+ *				enable_mpu_components[3] = 1 -> accel data (all axis)  will be buffered at fifo, even if data path is in standby
+ * 				enable_mpu_components[2] = 1 -> associated with auxiliary i2c, TODO
+ *				enable_mpu_components[1] = 1 -> associated with auxiliary i2c, TODO
+ * 				enable_mpu_components[0] = 1 -> associated with auxiliary i2c, TODO
+ *
+ * fifo_mode - if fifo_mode = FIFO_NOT_OVERRIDE, new incoming data will not replaced the oldest data
+ * 			   if fifo_mode = FIFO_OVERRIDE, new incoming data will replace the oldest
+ */
+
+void MPU_FIFOConfig(uint8_t enable_mpu_components, uint8_t fifo_mode){
+
+   FIFO_EN.data_cmd = 0;
+   FIFO_EN.data_cmd |= enable_mpu_components << 7;
+   MPU_WRITE(FIFO_EN);
+
+   CONFIG.data_cmd |= fifo_mode << 6;
+   MPU_WRITE(CONFIG);
+}
+
+/*
  * TODO
  */
 float MPU_TransformGyroRead(int16_t raw_data_read){

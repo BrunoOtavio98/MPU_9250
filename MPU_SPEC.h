@@ -89,6 +89,28 @@ typedef struct {
 
 
 /*
+ * 	All of MPU fifo specific definition will be placed at this place
+ *
+ */
+#define FIFO_NOT_OVERRIDE		1					//new data will not replace the oldest
+#define FIFO_OVERRIDE			0					//new data will replace oldest data
+
+#define FIFO_ENABLE_TEMP		1
+#define FIFO_DISABLE_TEMP		0
+
+#define FIFO_ENABLE_GYRO_X		1
+#define FIFO_DISABLE_GYRO_X		0
+
+#define FIFO_ENABLE_GYRO_Y		1
+#define FIFO_DISABLE_GYRO_Y		0
+
+#define FIFO_ENABLE_GYRO_Z		1
+#define FIFO_DISABLE_GYRO_Z 	0
+
+#define FIFO_ENABLE_ACCEL		1
+#define FIFO_DISABLE_ACCEL		0
+
+/*
  * MPU-9250 available registers
 */
 MPU_REGISTER SELF_TEST_X_GYRO;
@@ -199,6 +221,7 @@ MPU_REGISTER ZA_OFFSET_L;
 void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale);
 void MPU_ChangeAccelScale(MPU_ACCEL_SCALE new_scale);
 void MPU_ChangeGyroScale(MPU_GYRO_SCALE new_scale);
+void MPU_FIFOConfig(uint8_t enable_mpu_components, uint8_t fifo_mode);
 
 int16_t MPU_ReadAccelerometer(uint8_t axis);
 int16_t MPU_ReadGyro(uint8_t axis);
