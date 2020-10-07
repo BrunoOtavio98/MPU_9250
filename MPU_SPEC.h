@@ -37,6 +37,25 @@ uint8_t addr_used;									// holds the mpu i2c address
 #define SI_ACCELERATION 		9.806				//acceleration in international system of units 1g = 9.8 m/s^2
 
 /*
+ * Possible configuration of low pass filter register
+ */
+
+#define ACCEL_FCHOICE0			0
+#define ACCEL_FCHOICE1			1
+
+#define A_DLPF_CFGX				0
+#define A_DLPF_CFG0				0
+#define A_DLPF_CFG1				1
+#define A_DLPF_CFG2				2
+#define A_DLPF_CFG3				3
+#define A_DLPF_CFG4				4
+#define A_DLPF_CFG5				5
+#define A_DLPF_CFG6				6
+#define A_DLPF_CFG7				7
+
+
+
+/*
  * Specify all of sensitivity available by the MPU-9250 accelerometer
  */
 typedef enum{
@@ -47,6 +66,8 @@ typedef enum{
 }MPU_ACCEL_SCALE;
 
 uint16_t accel_sensitivity_used;			  //Currently accelerometer sensitivity used by the MPU
+
+
 
 
 /*

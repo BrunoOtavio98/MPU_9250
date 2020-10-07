@@ -17,7 +17,6 @@ uint8_t MPU_READ(MPU_REGISTER mpu_r);
 
 /*
  * @brief: MPU initialization function
- *
  * @param: i2c - Specify what i2c peripheral will be used, the values can be ( USE_I2C1, USE_I2C2 or USE_I2C3 )
  * 		   mpu_i2c_addr - For choose what i2c address will be used, if AD0 = HIGH -> mpu_i2c_addr = ADDR_2, otherwise mpu_i2c_addr = ADDR_1
  *		   accel_scale  - Specify the sensitivity of the accelerometer, choose a value at @MPU_ACCEL_SCALE enum
@@ -47,7 +46,6 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MP
 
 /*
  *  @brief: Internal driver function, used to initialize all of MPU registers
- *
  */
 static void Register_Initialization(){
 
@@ -194,7 +192,6 @@ void MPU_WRITE(MPU_REGISTER mpu_r){
 /* @brief:	MPU_READ is used by the high-level methods, like MPU_ReadAccelerometer, for read configuration parameters and data registers
  * 			The user can read by itself some device register just by sending the desired address registers
  * @param:  mpu_r - MPU specific register that will be read some configuration or information
- *
  * @retval: Information read from the register specified at mpu_r parameter
  */
 uint8_t MPU_READ(MPU_REGISTER mpu_r){
@@ -252,8 +249,8 @@ int16_t MPU_ReadGyro(uint8_t axis){
 	return data_return;
 }
 
-/*@brief: Function to read last temperature data
- *
+/*
+ * @brief: Function to read last temperature data
  *@retval: Raw information that is coming from temperature register
  */
 int16_t MPU_ReadIC_Temperature(){
@@ -267,7 +264,6 @@ int16_t MPU_ReadIC_Temperature(){
 
 /*
  * @brief -	Return the device identity
- *
  * @retval - Device identity
  */
 uint8_t MPU_Identity(){
@@ -298,7 +294,6 @@ void MPU_ChangeGyroScale(MPU_GYRO_SCALE new_scale){
 }
 
 /*@param - accel_scale: A MPU_ACCEL_SCALE parameter that defines the accelerometer sensitivity
- *
  *@brief - Configure the accelerometer resolution
  * 		   Greater the range that the accelerometer must read, smaller the resolution
  */
@@ -320,7 +315,6 @@ static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale){
 
 /*
  * @param - gyro_scale: A MPU_GYRO_SCALE parameter tha defines the gyroscope sensitivity
- *
  * @brief Configure the gyroscope resolution
  * 		  Greater the range that the gyroscope must read, smaller the resolution
  */
@@ -351,6 +345,39 @@ float MPU_TransformAccelRead(int16_t raw_data_read){
 	return (float)(raw_data_read * (1.0/accel_sensitivity_used));
 }
 
+/*@brief Configuration of low pass filter for accelerometer. Configuration can be made with the following table:
+ *
+ * 																				OUTPUT
+ * 			ACCEL_FCHOICE	A_DLPF_CFG		BANDWITH(HZ)		Delay(ms)		Noise Density		Rate(Hz):
+ * 				0				X			   1.13k			  0.75				250					4
+ * 				1				0			    460				  1.94				250					1
+ * 				1				1				184				  5.80				250					1
+ * 				1				2				92  			  7.80				250					1
+ * 				1				3				41				  11.80				250					1
+ * 				1				4				20				  19.80				250					1
+ * 				1				5				10				  35.70				250					1
+ * 				1				6				 5				  66.96				250					1
+ * 				1				7				460				  1.94				250					1
+ *
+ * @param:	ACCEL_FCHOICE - used to bypass the digital low pass filter as the table above
+ * 			A_DLPF_CFG:   - accelerometer low pass filter configuration as the table above
+ */
+
+void MPU_AccelerometerLowPassFilterConfig(uint8_t ACCEL_FCHOICE, uint8_t A_DLPF_CFG){
+
+
+	ACCEL_CONFIG2.data_cmd = 0;
+
+	ACCEL_CONFIG2.data_cmd |= ACCEL_FCHOICE << 3;
+
+	if(A_DLPF_CFG <= A_DLPF_CFG7){
+		ACCEL_CONFIG2.data_cmd |= A_DLPF_CFG;
+	}
+
+	MPU_WRITE(ACCEL_CONFIG2);
+	ACCEL_CONFIG2.data_cmd = 0;
+}
+
 /*
  * TODO
  */
@@ -358,4 +385,6 @@ float MPU_TransformGyroRead(int16_t raw_data_read){
 
 //	return (float)(raw_data_read * (1.0/gyro_sensitivity_used));
 }
+
+
 
