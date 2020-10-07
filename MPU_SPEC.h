@@ -27,6 +27,11 @@
 #define Y_AXIS   2
 #define Z_AXIS   3
 
+typedef struct {
+	uint8_t register_address;			//holds the i2c address of the internal register
+	uint8_t data_cmd;					//holds information that will be send to make some register configuration
+}MPU_REGISTER;
+
 I2C_HandleTypeDef mpu_i2c_comm;						//Holds the i2c peripheral registers used by the mcu to connect with MPU
 uint8_t addr_used;									// holds the mpu i2c address
 
@@ -68,8 +73,6 @@ typedef enum{
 uint16_t accel_sensitivity_used;			  //Currently accelerometer sensitivity used by the MPU
 
 
-
-
 /*
  * 	 All of gyroscope specific definition will be placed at this place
  */
@@ -82,18 +85,12 @@ typedef enum{
 
 float gyro_sensitivity_used;			//Currently gyroscope sensitivity used by the MPU
 
-typedef struct {
-	uint8_t register_address;			//holds the i2c address of the internal register
-	uint8_t data_cmd;					//holds information that will be send to make some register configuration
-}MPU_REGISTER;
-
-
 /*
  * 	All of MPU fifo specific definition will be placed at this place
  *
  */
-#define FIFO_NOT_OVERRIDE		1					//new data will not replace the oldest
-#define FIFO_OVERRIDE			0					//new data will replace oldest data
+#define FIFO_MODE_NOT_OVERRIDE		1					//new data will not replace the oldest
+#define FIFO_MODE_OVERRIDE			0					//new data will replace oldest data
 
 #define FIFO_ENABLE_TEMP		1
 #define FIFO_DISABLE_TEMP		0
@@ -215,20 +212,42 @@ MPU_REGISTER YA_OFFSET_L;
 MPU_REGISTER ZA_OFFSET_H;
 MPU_REGISTER ZA_OFFSET_L;
 
-/*
- * Driver functions
-*/
-void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale);
-void MPU_ChangeAccelScale(MPU_ACCEL_SCALE new_scale);
-void MPU_ChangeGyroScale(MPU_GYRO_SCALE new_scale);
-void MPU_FIFOConfig(uint8_t enable_mpu_components, uint8_t fifo_mode);
 
-int16_t MPU_ReadAccelerometer(uint8_t axis);
-int16_t MPU_ReadGyro(uint8_t axis);
-int16_t MPU_ReadIC_Temperature();
+//										 Driver functions
+
+/*
+ * General MPU functions
+ */
+void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale);
 uint8_t MPU_Identity();
+
+/*
+ * Fifo functions
+ */
+int8_t MPU_FifoReadData();
+int16_t MPU_FifoCounter();
+void MPU_FifoConfig(uint8_t enable_mpu_components, uint8_t fifo_mode);
+
+/*
+ * Accelerometer functions
+ */
+int16_t MPU_ReadAccelerometer(uint8_t axis);
+void MPU_ChangeAccelScale(MPU_ACCEL_SCALE new_scale);
 float MPU_TransformAccelRead(int16_t raw_data_read);
+void MPU_DisableAccelerometer(uint8_t axis);						//TODO
+
+/*
+ * Gyroscope functions
+ */
+int16_t MPU_ReadGyro(uint8_t axis);
 float MPU_TransformGyroRead(int16_t raw_data_read);
+void MPU_ChangeGyroScale(MPU_GYRO_SCALE new_scale);
+void MPU_DisableGyroscope(uint8_t axis);							//TODO
+
+/*
+ * Temperature sensor functions
+ */
+int16_t MPU_ReadIC_Temperature();
 
 
 #endif /* INC_MPU_SPEC_H_ */

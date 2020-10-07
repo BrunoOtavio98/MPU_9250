@@ -136,7 +136,7 @@ static void Register_Initialization(){
 	 I2C_MST_DELAY_CTRL.register_address	= 0x67;
 	 SIGNAL_PATH_RESET.register_address	 	= 0x68;
 	 MOT_DETECT_CTRL.register_address  		= 0x69;
-	 USER_CTRL. register_address   			= 0x6A;
+	 USER_CTRL.register_address   			= 0x6A;
 	 PWR_MGMT_1.register_address   			= 0x6B;
 	 PWR_MGMT_2.register_address   			= 0x6C;
 	 FIFO_COUNTH.register_address  			= 0x72;
@@ -180,9 +180,9 @@ static void I2C_Initialization(uint8_t I2Cx){
 
 /*
  * @brief:	MPU_WRITE is used by the high-level methods for send configuration parameters
- * 			The user can change by itself some MPU registers just writing the corrects parameters
+ * 			The user can change by himself some MPU registers just writing the corrects parameters
  * 			at the buffer of the desired command.
- * @param:  mpu_r - MPU specific register that will be write some configuration
+ * @param:  mpu_r - MPU specific register where some configuration will be written
  */
 void MPU_WRITE(MPU_REGISTER mpu_r){
 	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&mpu_r, sizeof(mpu_r), HAL_MAX_DELAY);
@@ -190,7 +190,7 @@ void MPU_WRITE(MPU_REGISTER mpu_r){
 
 
 /* @brief:	MPU_READ is used by the high-level methods, like MPU_ReadAccelerometer, for read configuration parameters and data registers
- * 			The user can read by itself some device register just by sending the desired address registers
+ * 			The user can read by himself some device register just by sending the desired address registers
  * @param:  mpu_r - MPU specific register that will be read some configuration or information
  * @retval: Information read from the register specified at mpu_r parameter
  */
@@ -320,7 +320,6 @@ static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale){
  */
 static void GyroScaleConfig(MPU_GYRO_SCALE gyro_scale){
 
-
 	if(gyro_scale == GYRO_FULL_SCALE_2000dps){
 		gyro_sensitivity_used = 16.4;
 	}
@@ -367,7 +366,6 @@ void MPU_AccelerometerLowPassFilterConfig(uint8_t ACCEL_FCHOICE, uint8_t A_DLPF_
 
 
 	ACCEL_CONFIG2.data_cmd = 0;
-
 	ACCEL_CONFIG2.data_cmd |= ACCEL_FCHOICE << 3;
 
 	if(A_DLPF_CFG <= A_DLPF_CFG7){
@@ -380,9 +378,8 @@ void MPU_AccelerometerLowPassFilterConfig(uint8_t ACCEL_FCHOICE, uint8_t A_DLPF_
 
 /*
  * @brief: Configuration of FIFO mode of operation and component enabling
- * 			If:
- *
  * @param:
+ * 			If:
  *				enable_mpu_components[7] = 1 ->  temperature data (TEMP_OUT_H, TEMP_OUT_L) will be buffered at fifo, even if data path is in standby
  * 				enable_mpu_components[6] = 1 ->  Gyro X axis data (GYRO_XOUT_X, GYRO_XOUT_L)  will be buffered at fifo, even if data path is in standby
  *				enable_mpu_components[5] = 1 ->  Gyro Y axis data (GYRO_YOUT_X, GYRO_YOUT_L)  will be buffered at fifo, even if data path is in standby
@@ -396,14 +393,52 @@ void MPU_AccelerometerLowPassFilterConfig(uint8_t ACCEL_FCHOICE, uint8_t A_DLPF_
  * 			   if fifo_mode = FIFO_OVERRIDE, new incoming data will replace the oldest
  */
 
-void MPU_FIFOConfig(uint8_t enable_mpu_components, uint8_t fifo_mode){
+void MPU_FifoConfig(uint8_t enable_mpu_components, uint8_t fifo_mode){
+
+   USER_CTRL.data_cmd = 0;
+   USER_CTRL.data_cmd |= 1 << 6;						//FIFO Enable
+   MPU_WRITE(USER_CTRL);
 
    FIFO_EN.data_cmd = 0;
-   FIFO_EN.data_cmd |= enable_mpu_components << 7;
+   FIFO_EN.data_cmd |= enable_mpu_components;		//controls what data will be put at fifo
    MPU_WRITE(FIFO_EN);
 
-   CONFIG.data_cmd |= fifo_mode << 6;
+   CONFIG.data_cmd |= fifo_mode << 6;					//controls if new data override or not the oldest
    MPU_WRITE(CONFIG);
+}
+
+/*
+ * @brief: Controls the number of bytes available at FIFO
+ * @reval: Number of bytes writes at FIFO
+ *
+ */
+int16_t MPU_FifoCounter(){
+
+	uint16_t data_register;
+
+	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&FIFO_COUNTH.register_address, sizeof(FIFO_COUNTH.register_address), HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&data_register, sizeof(data_register), HAL_MAX_DELAY);
+	return data_register;
+}
+
+/*
+ *@brief: Returns the data on the top of fifo
+ *		  Informations are written at fifo with register address order, for example, if temperature sensor and gyroscope is configured to write at fifo
+ *		  the first data that will be written are temperature data because it register address is smaller than gyroscope register address
+ *		  For enable or disable one component to write at fifo, change @enable_mpu_components at @MPU_FIFOConfig function
+ *
+ *		  Remember that the data thats is coming from the FIFO is raw data, for a value that make sense you should read
+ *		  two times the FIFO data, for example, x-axis of accelerometer, will be write first the High part, after the Low part
+ *		  Read two times data, and make the following operation:
+ *		  			meaningfull_accelerometer_data = FIRST_FIFO_READ << 8 || SECOND_FIFO_READ
+ *		  After, call @MPU_TransformAccelRead and pass as parameter meaningfull_accelerometer_data to get information in g unity
+ *
+ *
+ *@retval: One signed byte that represents data of gyroscope, temperature sensor or accelerometer
+ */
+int8_t MPU_FifoReadData(){
+
+	return (int8_t)MPU_READ(FIFO_R_W);
 }
 
 /*
