@@ -14,6 +14,7 @@
 static void I2C_Initialization(uint8_t I2Cx);
 static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale);
 static void GyroScaleConfig(MPU_GYRO_SCALE gyro_scale);
+static void Register_Initialization();
 
 void MPU_WRITE(MPU_REGISTER mpu_r);
 uint8_t MPU_READ(MPU_REGISTER mpu_r,uint8_t number_of_bytes);
@@ -49,7 +50,7 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MP
 /*
  *  @brief: Internal driver function, used to initialize all of MPU registers
  */
-void Register_Initialization(){
+static void Register_Initialization(){
 
 	 SELF_TEST_X_GYRO.register_address		= 0x00;
 	 SELF_TEST_Y_GYRO.register_address 		= 0x01;
@@ -154,8 +155,9 @@ void Register_Initialization(){
 }
 
 /*
- * @brief: Internal driver function used to initialize the i2c peripheral chosen by the user
- *
+ * @brief:  Internal driver function used to initialize the i2c peripheral chosen by the user
+ * @param:  What I2C peripheral will be used (I2C1, I2C2, I2C3)
+ * @retval: None
  */
 static void I2C_Initialization(uint8_t I2Cx){
 
@@ -187,6 +189,7 @@ static void I2C_Initialization(uint8_t I2Cx){
  * 			at the buffer of the desired command.
  * 			Use this function only if you know how to properly configure the MPU register
  * @param:  mpu_r - MPU specific register where some configuration will be written
+ * @retval: None
  */
 void MPU_WRITE(MPU_REGISTER mpu_r){
 	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&mpu_r, sizeof(mpu_r), HAL_MAX_DELAY);
@@ -209,9 +212,9 @@ uint8_t MPU_READ(MPU_REGISTER mpu_r, uint8_t number_of_bytes){
 	return data_register;
 }
 
-/*@brief: Function to read last accelerometer data
- *@param: axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
- *@retval: Raw information that is coming from MPU accelerometer ADC
+/* @brief:  Function to read last accelerometer data
+ * @param:  axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
+ * @retval: Raw information that is coming from MPU accelerometer ADC
  */
 int16_t MPU_AccelRead(uint8_t axis){
 
@@ -234,8 +237,9 @@ int16_t MPU_AccelRead(uint8_t axis){
 
 
 /*
- * @brief: Function to read last temperature data
- *@retval: Raw information that is coming from temperature register
+ * @brief:  Function to read last temperature data
+ * @param:  None
+ * @retval: Raw information that is coming from temperature register
  */
 int16_t MPU_Temperature_Read(){
 
@@ -248,8 +252,9 @@ int16_t MPU_Temperature_Read(){
 }
 
 /*
- * @brief -	Return the device identity
- * @retval - Device identity
+ * @brief:	Return the device identity
+ * @param:  None
+ * @retval: Device identity
  */
 uint8_t MPU_Identity(){
 
@@ -268,10 +273,10 @@ void MPU_AccelScaleChange(MPU_ACCEL_SCALE new_scale){
 }
 
 /*
- *@brief - Configure the accelerometer resolution
+ *@brief   Configure the accelerometer resolution
  * 		   Greater the range that the accelerometer must read, smaller the resolution
- *@param - accel_scale: A MPU_ACCEL_SCALE parameter that defines the accelerometer sensitivity
- *@retval - None
+ *@param:  accel_scale: A MPU_ACCEL_SCALE parameter that defines the accelerometer sensitivity
+ *@retval: None
  */
 static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale){
 
@@ -290,10 +295,10 @@ static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale){
 }
 
 /*
- *@brief Change the information read by the accelerometer from ADC resolution to g
- * 		 resolution = 1/accel_sensitivity
- *@param:raw_data_read: Information that is coming from accelerometer ADC
- *@retval: Meaningful acceleration data
+ * @brief:  Change the information read by the accelerometer from ADC resolution to g
+ * 		    resolution = 1/accel_sensitivity
+ * @param:  raw_data_read: Information that is coming from accelerometer ADC
+ * @retval: Meaningful acceleration data
  */
 float MPU_AccelTransformRead(int16_t raw_data_read){
 
@@ -328,9 +333,9 @@ void MPU_AccelLowPassFilterConfig(uint8_t ACCEL_FCHOICE, DLPF A_DLPF_CFG){
 }
 
 
-/*@brief: Function to read last gyroscope data
- *@param: axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
- *@retval: Raw information that is coming from MPU gyroscope ADC
+/*@brief: 	Function to read last gyroscope data
+ *@param: 	axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
+ *@retval: 	Raw information that is coming from MPU gyroscope ADC
  */
 int16_t MPU_GyroRead(uint8_t axis){
 
@@ -353,9 +358,9 @@ int16_t MPU_GyroRead(uint8_t axis){
 
 /*
  *
- * @brief Configure the gyroscope resolution
- * 		  Greater the range that the gyroscope must read, smaller the resolution
- * @param - gyro_scale: A MPU_GYRO_SCALE parameter tha defines the gyroscope sensitivity
+ * @brief:	Configure the gyroscope resolution
+ * 		  	Greater the range that the gyroscope must read, smaller the resolution
+ * @param: 	gyro_scale: A MPU_GYRO_SCALE parameter tha defines the gyroscope sensitivity
  * @retval: None
  */
 static void GyroScaleConfig(MPU_GYRO_SCALE gyro_scale){
@@ -456,10 +461,10 @@ void MPU_FifoConfig(uint8_t enable_mpu_components, uint8_t fifo_mode){
 }
 
 /*
- * @brief: Controls the number of bytes available at FIFO
- * 		   If the register FIFO_COUNTH is sent, the return is two bytes that contains the number of words writes at fifo, but at the first byte that is
- * 		   coming only the five first bits are relevant information, so a mask was applied (0x1F) to disregard the 3 lasts bits
- * @param: None
+ * @brief:  Controls the number of bytes available at FIFO
+ * 		    If the register FIFO_COUNTH is sent, the return is two bytes that contains the number of words writes at fifo, but at the first byte that is
+ * 		    coming only the five first bits are relevant information, so a mask was applied (0x1F) to disregard the 3 lasts bits
+ * @param:  None
  * @retval: Number of bytes writes at FIFO
  *
  */
@@ -476,14 +481,14 @@ int16_t MPU_FifoCounter(){
 }
 
 /*
- *@brief: Returns the data on the top of fifo
- *		  Informations are written at fifo with register address order, for example, if temperature sensor and gyroscope is configured to write at fifo
- *		  the first data that will be written are temperature data because it register address is smaller than gyroscope register address
- *		  For enable or disable one component to write at fifo, change @enable_mpu_components at @MPU_FIFOConfig function
+ * @brief: Returns the data on the top of fifo
+ *		   Informations are written at fifo with register address order, for example, if temperature sensor and gyroscope is configured to write at fifo
+ *		   the first data that will be written are temperature data because it register address is smaller than gyroscope register address
+ *		   For enable or disable one component to write at fifo, change @enable_mpu_components at @MPU_FIFOConfig function
  *
  *
- *@param: None
- *@retval: One signed byte that represents data of gyroscope, temperature sensor or accelerometer
+ * @param: None
+ * @retval: One signed byte that represents data of gyroscope, temperature sensor or accelerometer
  */
 int16_t MPU_FifoReadData(){
 
@@ -503,10 +508,44 @@ int16_t MPU_FifoReadData(){
  * 		  disable_accel can be one value of @MPU_DISABLE_AXIS
  *		  disable_gyroscope can be one value of @MPU_DISABLE_AXIS
  *
- *@retval: None
+ * @retval: None
  */
 void MPU_DisableComponents(MPU_DISABLE_AXIS disable_accel, MPU_DISABLE_AXIS disable_gyroscope){
 
 	PWR_MGMT_2.data_cmd = (disable_accel << 3) | disable_gyroscope;;		//information of what accel axis (last three bits) and gyro axis(first three bits) must be disable
 	MPU_WRITE(PWR_MGMT_2);
+}
+
+/* @brief:  Reset all gyro, accel and digital temp signal path. This bit also clears all the data sensor registers
+ * @param:  None
+ * @retval: None
+ */
+void MPU_ResetDataRegisters(){
+
+	USER_CTRL.data_cmd |= 1 << 0;
+	MPU_WRITE(USER_CTRL);
+	USER_CTRL.data_cmd &= ~(1 << 0);
+}
+
+/* @brief: Reset one or more sensor data path, the sensor register will not be cleared, for this, use @MPU_SignalPathReset
+ * @param: sensor_to_reset: One value of @RESET_SENSOR_SIGNAL_PATH
+ * @retval: None
+ *
+ */
+void MPU_SignalPathReset(RESET_SENSOR_SIGNAL_PATH sensor_to_reset){
+
+	SIGNAL_PATH_RESET.data_cmd  = sensor_to_reset;
+	MPU_WRITE(SIGNAL_PATH_RESET);
+	SIGNAL_PATH_RESET.data_cmd  = 0;
+}
+
+/* @brief:  Reset internal registers and restores default settings
+ * @param:  None
+ * @retval: None
+ */
+void MPU_ResetWholeIC(){
+
+	PWR_MGMT_1.data_cmd |= 1 << 7;
+	MPU_WRITE(PWR_MGMT_1);
+	PWR_MGMT_1.data_cmd &= ~(1 << 7);
 }

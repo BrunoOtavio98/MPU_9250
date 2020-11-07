@@ -59,6 +59,15 @@ typedef enum{
  DLPF_CFG7	=	7
 }DLPF;
 
+typedef enum{
+	RESET_ALL 			= 0x7,
+	RESET_GYRO_ACCEL	= 0x6,
+	RESET_GYRO_TEMP		= 0x5,
+	RESET_GYRO			= 0x4,
+	RESET_ACCEL_TEMP	= 0x3,
+	RESET_ACCEL			= 0x2,
+	RESET_TEMP			= 0x1
+}RESET_SENSOR_SIGNAL_PATH;
 
 I2C_HandleTypeDef mpu_i2c_comm;						//Holds the i2c peripheral registers used by the mcu to connect with MPU
 uint8_t addr_used;									// holds the mpu i2c address
@@ -246,8 +255,9 @@ MPU_REGISTER ZA_OFFSET_L;
 void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale);
 uint8_t MPU_Identity();
 void MPU_DisableComponents(MPU_DISABLE_AXIS disable_accel, MPU_DISABLE_AXIS disable_gyroscope);
-void Register_Initialization();
-
+void MPU_ResetDataRegisters();
+void MPU_SignalPathReset(RESET_SENSOR_SIGNAL_PATH sensor_to_reset);
+void MPU_ResetWholeIC()
 /*
  * Fifo functions
  */
