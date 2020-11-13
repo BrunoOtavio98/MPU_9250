@@ -212,29 +212,6 @@ uint8_t MPU_READ(MPU_REGISTER mpu_r, uint8_t number_of_bytes){
 	return data_register;
 }
 
-/* @brief:  Function to read last accelerometer data
- * @param:  axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
- * @retval: Raw information that is coming from MPU accelerometer ADC
- */
-int16_t MPU_AccelRead(uint8_t axis){
-
-	int16_t data_return;
-
-	if(axis == X_AXIS){
-		data_return = (int16_t)(MPU_READ(ACCEL_XOUT_H,1) << 8);
-		data_return |= MPU_READ(ACCEL_XOUT_L,1);
-	}
-	else if(axis == Y_AXIS){
-		data_return = (int16_t)(MPU_READ(ACCEL_YOUT_H,1) << 8);
-		data_return |= MPU_READ(ACCEL_YOUT_L,1);
-	}
-	else{
-		data_return = (int16_t)(MPU_READ(ACCEL_ZOUT_H,1) << 8);
-		data_return |= MPU_READ(ACCEL_ZOUT_L,1);
-	}
-	return data_return;
-}
-
 
 /*
  * @brief:  Function to read last temperature data
@@ -261,8 +238,32 @@ uint8_t MPU_Identity(){
 	return MPU_READ(WHO_AM_I,1);
 }
 
-/* @brief: Function used to change the sensitivity of the accelerometer at any desired instant
- * @param: New sensitivity that will be used, can be one value of @MPU_ACCEL_SCALE enum
+/* @brief:  Function to read last accelerometer data
+ * @param:  axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
+ * @retval: Raw information that is coming from MPU accelerometer ADC
+ */
+int16_t MPU_AccelRead(uint8_t axis){
+
+	int16_t data_return;
+
+	if(axis == X_AXIS){
+		data_return = (int16_t)(MPU_READ(ACCEL_XOUT_H,1) << 8);
+		data_return |= MPU_READ(ACCEL_XOUT_L,1);
+	}
+	else if(axis == Y_AXIS){
+		data_return = (int16_t)(MPU_READ(ACCEL_YOUT_H,1) << 8);
+		data_return |= MPU_READ(ACCEL_YOUT_L,1);
+	}
+	else{
+		data_return = (int16_t)(MPU_READ(ACCEL_ZOUT_H,1) << 8);
+		data_return |= MPU_READ(ACCEL_ZOUT_L,1);
+	}
+	return data_return;
+}
+
+/* @brief:  Function used to change the sensitivity of the accelerometer at any desired instant
+ * @param:  New sensitivity that will be used, can be one value of @MPU_ACCEL_SCALE enum
+ * @retval: None
  */
 void MPU_AccelScaleChange(MPU_ACCEL_SCALE new_scale){
 
@@ -275,7 +276,7 @@ void MPU_AccelScaleChange(MPU_ACCEL_SCALE new_scale){
 /*
  *@brief   Configure the accelerometer resolution
  * 		   Greater the range that the accelerometer must read, smaller the resolution
- *@param:  accel_scale: A MPU_ACCEL_SCALE parameter that defines the accelerometer sensitivity
+ *@param:  accel_scale: A @MPU_ACCEL_SCALE parameter that defines the accelerometer sensitivity
  *@retval: None
  */
 static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale){
@@ -332,6 +333,46 @@ void MPU_AccelLowPassFilterConfig(uint8_t ACCEL_FCHOICE, DLPF A_DLPF_CFG){
 	MPU_WRITE(ACCEL_CONFIG2);
 }
 
+/* @brief: Used to remove DC bias from accel sensor data output, the values in these registers are subtracted from the accel going into the sensor registers
+ *
+ * @param:
+ *			axis  - Must be one value of @AXIS enum
+ *			value - Value that should be subtracted from the accel data output
+ *					If the value that are displaying at one axis is x m/s², and the desired value is 0 m/s², the value parameter must be -x
+ * @retval: None
+ */
+void MPU_AccelOffset(uint8_t axis, float value){
+	int16_t raw_data = (int16_t)(value * 2048);
+
+
+	MPU_REGISTER OFFSET_ACCEL_L;
+	MPU_REGISTER OFFSET_ACCEL_H;
+
+	if(axis == X_AXIS){
+
+		memcpy(&OFFSET_ACCEL_H, &XA_OFFSET_H, sizeof(XA_OFFSET_H));
+		memcpy(&OFFSET_ACCEL_L, &XA_OFFSET_L, sizeof(XA_OFFSET_L));
+	}
+	else if(axis == Y_AXIS){
+
+		memcpy(&OFFSET_ACCEL_H, &YA_OFFSET_H, sizeof(YA_OFFSET_H));
+		memcpy(&OFFSET_ACCEL_L, &YA_OFFSET_L, sizeof(YA_OFFSET_L));
+	}
+	else{
+
+		memcpy(&OFFSET_ACCEL_H, &ZA_OFFSET_H, sizeof(ZA_OFFSET_H));
+		memcpy(&OFFSET_ACCEL_L, &ZA_OFFSET_L, sizeof(ZA_OFFSET_L));
+	}
+
+	OFFSET_ACCEL_H.data_cmd = 0;
+	OFFSET_ACCEL_L.data_cmd = 0;
+
+	OFFSET_ACCEL_H.data_cmd |= (raw_data >> 8) & 0xFF;
+	OFFSET_ACCEL_L.data_cmd |= raw_data & 0xFF;
+
+	MPU_WRITE(OFFSET_ACCEL_H);
+	MPU_WRITE(OFFSET_ACCEL_L);
+}
 
 /*@brief: 	Function to read last gyroscope data
  *@param: 	axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
@@ -430,11 +471,49 @@ void MPU_GyroTempLowPassFilterConfig(uint8_t FCHOICE, DLPF DLPF_CFG){
 	MPU_WRITE(GYRO_CONFIG);
 }
 
+/* @brief: Used to remove DC bias from gyro sensor data output, the values in these registers are subtracted from the gyro going into the sensor registers
+ * @param:
+ *			axis  - Must be one value of @AXIS enum
+ *			value - Value that should be subtracted from the gyro data output
+ *					If the value that are displaying at one axis is x °/s, and the desired value is 0 °/s, the value parameter must be -x
+ * @retval: None
+ */
+void MPU_GyroOffset(AXIS axis, float value){
+	int16_t raw_data = (int16_t)(value * 32.8);		//According with the application note of InvenSense, the value of the bias inputed needs to be in +-1000dps sensitivity range
+
+	MPU_REGISTER OFFSET_TO_SEND_H;
+	MPU_REGISTER OFFSET_TO_SEND_L;
+
+	if(axis == X_AXIS){
+
+		memcpy(&OFFSET_TO_SEND_H, &XG_OFFSET_H, sizeof(XG_OFFSET_H));
+		memcpy(&OFFSET_TO_SEND_L, &XG_OFFSET_L, sizeof(XG_OFFSET_L));
+	}
+	else if(axis == Y_AXIS){
+
+		memcpy(&OFFSET_TO_SEND_H, &YG_OFFSET_H, sizeof(YG_OFFSET_H));
+		memcpy(&OFFSET_TO_SEND_L, &YG_OFFSET_L, sizeof(YG_OFFSET_L));
+	}
+	else{
+
+		memcpy(&OFFSET_TO_SEND_H, &ZG_OFFSET_H, sizeof(ZG_OFFSET_H));
+		memcpy(&OFFSET_TO_SEND_L, &ZG_OFFSET_L, sizeof(ZG_OFFSET_L));
+	}
+
+	OFFSET_TO_SEND_H.data_cmd = 0;
+	OFFSET_TO_SEND_L.data_cmd = 0;
+	OFFSET_TO_SEND_H.data_cmd |= (raw_data >> 8) && 0xff;
+	OFFSET_TO_SEND_L.data_cmd |= (raw_data & 0xFF);
+
+	MPU_WRITE(OFFSET_TO_SEND_H);
+	MPU_WRITE(OFFSET_TO_SEND_L);
+}
+
 /*
  * @brief: Configuration of FIFO mode of operation and component enabling
  * @param:
  * 			If:
- *				enable_mpu_components[7] = 1 ->  temperature data (TEMP_OUT_H, TEMP_OUT_L) will be bu	ffered at fifo, even if data path is in standby
+ *				enable_mpu_components[7] = 1 ->  temperature data (TEMP_OUT_H, TEMP_OUT_L)    will be buffered at fifo, even if data path is in standby
  * 				enable_mpu_components[6] = 1 ->  Gyro X axis data (GYRO_XOUT_X, GYRO_XOUT_L)  will be buffered at fifo, even if data path is in standby
  *				enable_mpu_components[5] = 1 ->  Gyro Y axis data (GYRO_YOUT_X, GYRO_YOUT_L)  will be buffered at fifo, even if data path is in standby
  * 				enable_mpu_components[4] = 1 ->  Gyro Z axis data (GYRO_ZOUT_X, GYRO_ZOUT_L)  will be buffered at fifo, even if data path is in standby

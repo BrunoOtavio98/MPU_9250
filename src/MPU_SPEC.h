@@ -10,6 +10,7 @@
 
 #include "stm32f4xx_hal.h"
 #include <stdint.h>
+#include <string.h>
 
 //	Global definition
 
@@ -42,9 +43,13 @@ typedef enum{
 #define USE_I2C2 2
 #define USE_I2C3 3
 
-#define X_AXIS   1
-#define Y_AXIS   2
-#define Z_AXIS   3
+
+typedef enum{
+
+	X_AXIS =  1,
+	Y_AXIS =  2,
+	Z_AXIS =  3
+}AXIS;
 
 typedef enum{
 
@@ -71,6 +76,11 @@ typedef enum{
 
 I2C_HandleTypeDef mpu_i2c_comm;						//Holds the i2c peripheral registers used by the mcu to connect with MPU
 uint8_t addr_used;									// holds the mpu i2c address
+
+//When the IMU comes, it contain the OTP values of the Accel factory trim. (Application note)
+float accelx_factory_trim;
+float accely_factory_trim;
+float accelz_factory_trim;
 
 /*
  *	All of accelerometer specific definition will be placed at this place
@@ -257,7 +267,7 @@ uint8_t MPU_Identity();
 void MPU_DisableComponents(MPU_DISABLE_AXIS disable_accel, MPU_DISABLE_AXIS disable_gyroscope);
 void MPU_ResetDataRegisters();
 void MPU_SignalPathReset(RESET_SENSOR_SIGNAL_PATH sensor_to_reset);
-void MPU_ResetWholeIC()
+void MPU_ResetWholeIC();
 /*
  * Fifo functions
  */
@@ -268,18 +278,20 @@ void MPU_FifoConfig(uint8_t enable_mpu_components, uint8_t fifo_mode);
 /*
  * Accelerometer functions
  */
-int16_t MPU_AccelRead(uint8_t axis);
+int16_t MPU_AccelRead(AXIS axis);
 void MPU_AccelScaleChange(MPU_ACCEL_SCALE new_scale);
 float MPU_AccelTransformRead(int16_t raw_data_read);
 void MPU_AccelLowPassFilterConfig(uint8_t ACCEL_FCHOICE, uint8_t A_DLPF_CFG);
+void MPU_AccelOffset(AXIS axis, float value);
 
 /*
  * Gyroscope functions
  */
-int16_t MPU_ReadGyro(uint8_t axis);
+int16_t MPU_GyroRead(AXIS axis);
 float MPU_GyroTransformRead(int16_t raw_data_read);
 void MPU_GyroScaleChange(MPU_GYRO_SCALE new_scale);
 void MPU_GyroTempLowPassFilterConfig(uint8_t FCHOICE, DLPF DLPF_CFG);
+void MPU_GyroOffset(AXIS axis, float value);
 
 /*
  * Temperature sensor functions
