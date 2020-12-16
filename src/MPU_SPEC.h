@@ -14,6 +14,8 @@
 
 //	Global definition
 
+#define USE_SI 					1				//International system of units will be used or not
+
 typedef struct {
 	uint8_t register_address;			//holds the i2c address of the internal register
 	uint8_t data_cmd;					//holds information that will be send to make some register configuration, each mpu register will have
@@ -36,8 +38,8 @@ typedef enum{
 #define USE_ADDR1 1
 #define USE_ADDR2 2
 
-#define ADDR_1 0x68
-#define ADDR_2 0x69
+#define ACCELGYRO_ADDR_1 0x68
+#define ACCELGYRO_ADDR_2 0x69
 
 #define USE_I2C1 1
 #define USE_I2C2 2
@@ -78,15 +80,24 @@ I2C_HandleTypeDef mpu_i2c_comm;						//Holds the i2c peripheral registers used b
 uint8_t addr_used;									// holds the mpu i2c address
 
 //When the IMU comes, it contain the OTP values of the Accel factory trim. (Application note)
-float accelx_factory_trim;
-float accely_factory_trim;
-float accelz_factory_trim;
+//float accelx_factory_trim;
+//float accely_factory_trim;
+//float accelz_factory_trim;
+
+/*
+ * These values were found previously , if you want to change them, just uncomment the lines 49, 50, 51, To find your MPU trim factory
+*/
+
+#define accelx_factory_trim	 1.72753906
+#define accely_factory_trim	 29.5117188
+#define accelz_factory_trim  5.14160156
 
 /*
  *	All of accelerometer specific definition will be placed at this place
  *
  */
-#define SI_ACCELERATION 		9.806				//acceleration in international system of units 1g = 9.8 m/s^2
+
+#define SI_ACCELERATION 		9.807				//acceleration in international system of units 1g = 9.8 m/s^2
 
 /*
  * Possible configuration of low pass filter register
@@ -149,6 +160,32 @@ float gyro_sensitivity_used;			//Currently gyroscope sensitivity used by the MPU
 
 #define FIFO_ENABLE_ACCEL		1
 #define FIFO_DISABLE_ACCEL		0
+
+/*
+ * All of MPU magnetometer AK8963 specific definition will be placed at this place
+ *
+ */
+#define AK8963_ADDR 0x48
+#define AK8963_SENSITIVITY 0.6
+
+typedef enum{
+
+	MAG_POWER_DOWN 		         = 0000,
+	MAG_SINGLE_MEASUREMENT 		 = 0001,
+	MAG_CONTINUOUS_MEASUREMENT1  = 0010,
+	MAG_CONTINUOUS_MEASUREMENT2	 = 0110,
+	MAG_EXTERNAL_TRIGGER		 = 0100,
+	MAG_SELF_TEST 				 = 1000,
+	MAG_FUSE_ROOM				 = 1111
+}MPU_MAG_OPMODE;
+
+typedef enum{
+
+	_14_BIT,
+	_16_BIT
+}MPU_MAG_OUTPUT_SETTING;
+
+int8_t magx_Adj, magy_Adj, magz_Adj;
 
 /*
  * MPU-9250 available registers
@@ -257,6 +294,28 @@ MPU_REGISTER YA_OFFSET_L;
 MPU_REGISTER ZA_OFFSET_H;
 MPU_REGISTER ZA_OFFSET_L;
 
+
+//Magnetometer registers
+MPU_REGISTER WIA;
+MPU_REGISTER INFO;
+MPU_REGISTER ST1;
+MPU_REGISTER HXL;
+MPU_REGISTER HXH;
+MPU_REGISTER HYL;
+MPU_REGISTER HYH;
+MPU_REGISTER HZL;
+MPU_REGISTER HZH;
+MPU_REGISTER ST2;
+MPU_REGISTER CNTL;
+MPU_REGISTER RSV;
+MPU_REGISTER ASTC;
+MPU_REGISTER TS1;
+MPU_REGISTER TS2;
+MPU_REGISTER I2CDIS;
+MPU_REGISTER ASAX;
+MPU_REGISTER ASAY;
+MPU_REGISTER ASAZ;
+
 //										 Driver functions
 
 /*
@@ -298,5 +357,18 @@ void MPU_GyroOffset(AXIS axis, float value);
  */
 int16_t MPU_ReadIC_Temperature();
 
+
+/*
+ * Magnetometer functions
+ *
+ */
+uint8_t MPU_MagGetInfo();
+uint8_t MPU_MagGetStatus1();
+uint8_t MPU_MagGetStatus2();
+int16_t MPU_MagRead(AXIS axis);
+uint8_t MPU_MagWhoAmI();
+void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING output_mde);
+uint8_t MPU_MagConfigControl2(uint8_t reset);
+void MPU_MagI2CDisable();
 
 #endif /* INC_MPU_SPEC_H_ */
