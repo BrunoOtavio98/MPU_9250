@@ -163,7 +163,8 @@ float gyro_sensitivity_used;			//Currently gyroscope sensitivity used by the MPU
  *
  */
 #define AK8963_ADDR 0x0C
-#define AK8963_SENSITIVITY 0.6
+#define AK8963_SENSITIVITY 0.1499023
+
 
 typedef enum{
 
@@ -183,6 +184,7 @@ typedef enum{
 }MPU_MAG_OUTPUT_SETTING;
 
 int8_t magx_Adj, magy_Adj, magz_Adj;
+
 
 /*
  * MPU-9250 available registers
@@ -324,6 +326,7 @@ void MPU_DisableComponents(MPU_DISABLE_AXIS disable_accel, MPU_DISABLE_AXIS disa
 void MPU_ResetDataRegisters();
 void MPU_SignalPathReset(RESET_SENSOR_SIGNAL_PATH sensor_to_reset);
 void MPU_ResetWholeIC();
+uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_data[]);
 /*
  * Fifo functions
  */
@@ -361,7 +364,6 @@ uint8_t MPU_MagGetStatus1();
 uint8_t MPU_MagGetStatus2();
 float MPU_MagRead(AXIS axis);
 uint8_t MPU_MagWhoAmI();
-void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING output_mde);
 uint8_t MPU_MagConfigControl2(uint8_t reset);
 void MPU_MagI2CDisable();
 
