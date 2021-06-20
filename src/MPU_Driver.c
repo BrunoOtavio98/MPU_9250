@@ -15,9 +15,15 @@ static void I2C_Initialization(uint8_t I2Cx);
 static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale);
 static void GyroScaleConfig(MPU_GYRO_SCALE gyro_scale);
 static void Register_Initialization();
+static float MPU_AccelTransformRead(int16_t raw_data_read);
+static float MPU_GyroTransformRead(int16_t raw_data_read);
 
-void MPU_WRITE(MPU_REGISTER mpu_r, uint8_t addr);
-uint8_t MPU_READ(MPU_REGISTER mpu_r,uint8_t number_of_bytes, uint8_t addr);
+void __MAG_WRITE(MPU_REGISTER reg_to_write);
+uint8_t __MAG_READ(MPU_REGISTER reg_to_read, uint8_t bytes, uint8_t data_vet[]);
+void __MPU_WRITE(MPU_REGISTER mpu_r, uint8_t addr);
+void __MPU_READ(MPU_REGISTER mpu_r,uint8_t number_of_bytes, uint8_t data_return[]);
+
+uint8_t MPU_ADDR_USED;									// holds the mpu i2c address
 
 /*
  * @brief: MPU initialization function
@@ -25,6 +31,7 @@ uint8_t MPU_READ(MPU_REGISTER mpu_r,uint8_t number_of_bytes, uint8_t addr);
  * 		   mpu_i2c_addr - For choose what i2c address will be used, if AD0 = HIGH -> mpu_i2c_addr = ADDR_2, otherwise mpu_i2c_addr = ADDR_1
  *		   accel_scale  - Specify the sensitivity of the accelerometer, choose a value at @MPU_ACCEL_SCALE enum
  *		   gyro_scale   - Specify the sensitivity of the gyroscope, choose a value at @MPU_GYRO_SCALE enum
+ *		   enable_mag   - true if magnetometer must be enabled, false otherwise
  */
 void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale){
 
@@ -33,9 +40,9 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MP
 	Register_Initialization();
 
 	if(mpu_i2c_addr == USE_ADDR1)
-		addr_used = ACCELGYRO_ADDR_1;
+		MPU_ADDR_USED = ACCELGYRO_ADDR_1;
 	else
-		addr_used = ACCELGYRO_ADDR_2;
+		MPU_ADDR_USED = ACCELGYRO_ADDR_2;
 
 	ACCEL_CONFIG.data_cmd |= accel_scale 	<< 3;
 	GYRO_CONFIG.data_cmd  |= gyro_scale     << 3;
@@ -43,17 +50,19 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MP
 	AccelScaleConfig(accel_scale);
 	GyroScaleConfig(gyro_scale);
 
-	MPU_WRITE(ACCEL_CONFIG, addr_used);
-	MPU_WRITE(GYRO_CONFIG, addr_used);
+	__MPU_WRITE(ACCEL_CONFIG, MPU_ADDR_USED);
+	__MPU_WRITE(GYRO_CONFIG, MPU_ADDR_USED);
 
-	CNTL.data_cmd = 1 << 5;					//16 bit output
-	MPU_WRITE(CNTL, AK8963_ADDR);
-//	accelx_factory_trim = (MPU_READ(XA_OFFSET_H, 1) << 8 | MPU_READ(XA_OFFSET_L, 1))/2048.0;
-//	accely_factory_trim = (MPU_READ(YA_OFFSET_H, 1) << 8 | MPU_READ(YA_OFFSET_L, 1))/2048.0;
-//	accelz_factory_trim = (MPU_READ(ZA_OFFSET_H, 1) << 8 | MPU_READ(ZA_OFFSET_L, 1))/2048.0;
-	magx_Adj = MPU_READ(ASAX, 1, AK8963_ADDR);
-	magy_Adj = MPU_READ(ASAY, 1, AK8963_ADDR);
-	magz_Adj = MPU_READ(ASAZ, 1, AK8963_ADDR);
+	HAL_Delay(1);								/* To change from power-down mode to another mode, its necessary at least 100 us (AK8963 datasheet Rev. 10/2013) */
+	MPU_MagConfigControl(MAG_CONTINUOUS_MEASUREMENT2, _16_BIT);
+
+	//magx_Adj = __MAG_READ(ASAX, 1);
+	//magy_Adj = __MAG_READ(ASAY, 1);
+	//magz_Adj = __MAG_READ(ASAZ, 1);
+
+	/*	accelx_factory_trim = (__MPU_READ(XA_OFFSET_H, 1) << 8 | __MPU_READ(XA_OFFSET_L, 1))/2048.0;		*/
+	/*	accely_factory_trim = (__MPU_READ(YA_OFFSET_H, 1) << 8 | __MPU_READ(YA_OFFSET_L, 1))/2048.0;		*/
+	/*	accelz_factory_trim = (__MPU_READ(ZA_OFFSET_H, 1) << 8 | __MPU_READ(ZA_OFFSET_L, 1))/2048.0;		*/
 }
 
 /*
@@ -173,8 +182,8 @@ static void Register_Initialization(){
 	 HZL.register_address 	 = 0x07;
 	 HZH.register_address 	 = 0x08;
 	 ST2.register_address 	 = 0x09;
-	 CNTL.register_address  = 0x0A;
-	 RSV.register_address 	 = 0x0B;
+	 CNTL1.register_address  = 0x0A;
+	 CNTL2.register_address  = 0x0B;
 	 ASTC.register_address 	 = 0x0C;
 	 TS1.register_address 	 = 0x0D;
 	 TS2.register_address 	 = 0x0E;
@@ -214,32 +223,29 @@ static void I2C_Initialization(uint8_t I2Cx){
 }
 
 /*
- * @brief:	MPU_WRITE is used by the high-level methods for send configuration parameters
+ * @brief:	__MPU_WRITE is used by the high-level methods for send configuration parameters
  * 			The user can change by himself some MPU registers just writing the corrects parameters
  * 			at the buffer of the desired command.
- * 			Use this function only if you know how to properly configure the MPU register
+ * 			Use this function only if you know how to properly configure the MPU registers
  * @param:  mpu_r - MPU specific register where some configuration will be written
  * @retval: None
  */
-void MPU_WRITE(MPU_REGISTER mpu_r, uint8_t addr){
+void __MPU_WRITE(MPU_REGISTER mpu_r, uint8_t addr){
 	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr << 1), (uint8_t*)&mpu_r, sizeof(mpu_r), HAL_MAX_DELAY);
 }
 
 
-/* @brief:	MPU_READ is used by the high-level methods, like MPU_ReadAccelerometer, for read configuration parameters and data registers
+/* @brief:	__MPU_READ is used by the high-level methods, like __MPU_READAccelerometer, for read configuration parameters and data registers
  * 			The user can read by himself some device register just by sending the desired address registers
- * 			Use this function only if you know how to properly configure the MPU register
+ * 			Use this function only if you know how to properly configure the MPU registers
  * @param:  mpu_r - MPU specific register that will be read some configuration or information
  * 			number_of_bytes - Number of bytes that will be read from MPU register
  * @retval: Information read from the register specified at mpu_r parameter
  */
-uint8_t MPU_READ(MPU_REGISTER mpu_r, uint8_t number_of_bytes, uint8_t addr){
+void __MPU_READ(MPU_REGISTER mpu_r, uint8_t number_of_bytes, uint8_t data_return[]){
 
-	uint8_t data_register;
-
-	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr << 1), (uint8_t*)&mpu_r.register_address, sizeof(mpu_r.register_address), HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(addr << 1), (uint8_t*)&data_register, number_of_bytes, HAL_MAX_DELAY);
-	return data_register;
+	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(MPU_ADDR_USED << 1), (uint8_t*)&mpu_r.register_address, sizeof(mpu_r.register_address), HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(MPU_ADDR_USED << 1), (uint8_t*)&data_return, number_of_bytes, HAL_MAX_DELAY);
 }
 
 
@@ -252,8 +258,8 @@ int16_t MPU_Temperature_Read(){
 
 //	int16_t data_return;
 
-//	data_return = (int16_t)(MPU_READ(TEMP_OUT_H) << 8);
-//	data_return |= MPU_READ(TEMP_OUT_L);
+//	data_return = (int16_t)(__MPU_READ(TEMP_OUT_H) << 8);
+//	data_return |= __MPU_READ(TEMP_OUT_L);
 //	return data_return;
 	return 0;
 }
@@ -265,30 +271,35 @@ int16_t MPU_Temperature_Read(){
  */
 uint8_t MPU_Identity(){
 
-	return MPU_READ(WHO_AM_I,1,addr_used);
+	uint8_t mpu_identity;
+
+	__MPU_READ(WHO_AM_I,1, &mpu_identity);
+
+	return mpu_identity;
 }
 
 /* @brief:  Function to read last accelerometer data
  * @param:  axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
  * @retval: Raw information that is coming from MPU accelerometer ADC
  */
-int16_t MPU_AccelRead(uint8_t axis){
+float MPU_AccelRead(uint8_t axis){
 
 	int16_t data_return;
+	uint8_t accel_data[2];
 
 	if(axis == X_AXIS){
-		data_return = (int16_t)(MPU_READ(ACCEL_XOUT_H,1,addr_used) << 8);
-		data_return |= MPU_READ(ACCEL_XOUT_L,1,addr_used);
+		__MPU_READ(ACCEL_XOUT_H, 2, accel_data);
+		data_return = accel_data[0] << 8 | accel_data[1];
 	}
 	else if(axis == Y_AXIS){
-		data_return = (int16_t)(MPU_READ(ACCEL_YOUT_H,1,addr_used) << 8);
-		data_return |= MPU_READ(ACCEL_YOUT_L,1,addr_used);
+		__MPU_READ(ACCEL_YOUT_H, 2, accel_data);
+		data_return = accel_data[0] << 8 | accel_data[1];
 	}
 	else{
-		data_return = (int16_t)(MPU_READ(ACCEL_ZOUT_H,1,addr_used) << 8);
-		data_return |= MPU_READ(ACCEL_ZOUT_L,1,addr_used);
+		__MPU_READ(ACCEL_ZOUT_H, 2, accel_data);
+		data_return = accel_data[0] << 8 | accel_data[1];
 	}
-	return data_return;
+	return MPU_AccelTransformRead(data_return);
 }
 
 /* @brief:  Function used to change the sensitivity of the accelerometer at any desired instant
@@ -300,7 +311,7 @@ void MPU_AccelScaleChange(MPU_ACCEL_SCALE new_scale){
 	ACCEL_CONFIG.data_cmd |= new_scale << 3;
 	AccelScaleConfig(new_scale);
 
-	MPU_WRITE(ACCEL_CONFIG,addr_used);
+	__MPU_WRITE(ACCEL_CONFIG, MPU_ADDR_USED);
 }
 
 /*
@@ -331,7 +342,7 @@ static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale){
  * @param:  raw_data_read: Information that is coming from accelerometer ADC
  * @retval: Meaningful acceleration data
  */
-float MPU_AccelTransformRead(int16_t raw_data_read){
+static float MPU_AccelTransformRead(int16_t raw_data_read){
 
 	if(!USE_SI)
 		return (float)(raw_data_read * (1.0/accel_sensitivity_used));
@@ -363,7 +374,7 @@ void MPU_AccelLowPassFilterConfig(uint8_t ACCEL_FCHOICE, DLPF A_DLPF_CFG){
 
 	ACCEL_CONFIG2.data_cmd |= A_DLPF_CFG;
 
-	MPU_WRITE(ACCEL_CONFIG2,addr_used);
+	__MPU_WRITE(ACCEL_CONFIG2, MPU_ADDR_USED);
 }
 
 /* @brief: Used to remove DC bias from accel sensor data output, the values in these registers are subtracted from the accel going into the sensor registers
@@ -377,7 +388,6 @@ void MPU_AccelLowPassFilterConfig(uint8_t ACCEL_FCHOICE, DLPF A_DLPF_CFG){
 void MPU_AccelOffset(uint8_t axis, float value){
 
 	int16_t raw_data;
-
 
 	MPU_REGISTER OFFSET_ACCEL_L;
 	MPU_REGISTER OFFSET_ACCEL_H;
@@ -407,31 +417,32 @@ void MPU_AccelOffset(uint8_t axis, float value){
 	OFFSET_ACCEL_H.data_cmd |= (raw_data >> 8) & 0xFF;
 	OFFSET_ACCEL_L.data_cmd |= raw_data & 0xFF;
 
-	MPU_WRITE(OFFSET_ACCEL_H, addr_used);
-	MPU_WRITE(OFFSET_ACCEL_L, addr_used);
+	__MPU_WRITE(OFFSET_ACCEL_H, MPU_ADDR_USED);
+	__MPU_WRITE(OFFSET_ACCEL_L, MPU_ADDR_USED);
 }
 
 /*@brief: 	Function to read last gyroscope data
  *@param: 	axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
  *@retval: 	Raw information that is coming from MPU gyroscope ADC
  */
-int16_t MPU_GyroRead(uint8_t axis){
+float MPU_GyroRead(uint8_t axis){
 
 	int16_t data_return = 0;
+	uint8_t giro_data[2];
 
 	if(axis == X_AXIS){
-		data_return = (int16_t)(MPU_READ(GYRO_XOUT_H, 1, addr_used) << 8);
-		data_return |= MPU_READ(GYRO_XOUT_L, 1, addr_used);
+		__MPU_READ(GYRO_XOUT_H, 2, giro_data);
+		data_return = giro_data[0] << 8 | giro_data[1];
 	}
 	else if(axis == Y_AXIS){
-		data_return = (int16_t)(MPU_READ(GYRO_YOUT_H, 1, addr_used) << 8);
-		data_return |= MPU_READ(GYRO_YOUT_L, 1, addr_used);
+		__MPU_READ(GYRO_YOUT_H, 2, giro_data);
+		data_return = giro_data[0] << 8 | giro_data[1];
 	}
 	else{
-		data_return = (int16_t)(MPU_READ(GYRO_ZOUT_H, 1, addr_used) << 8);
-		data_return |= MPU_READ(GYRO_ZOUT_L, 1, addr_used);
+		__MPU_READ(GYRO_ZOUT_H, 2, giro_data);
+		data_return = giro_data[0] << 8 | giro_data[1];
 	}
-	return data_return;
+	return MPU_GyroTransformRead(data_return);
 }
 
 /*
@@ -465,7 +476,7 @@ void MPU_GyroScaleChange(MPU_GYRO_SCALE new_scale){
 	GYRO_CONFIG.data_cmd |= new_scale << 3;
 	GyroScaleConfig(new_scale);
 
-	MPU_WRITE(GYRO_CONFIG, addr_used);
+	__MPU_WRITE(GYRO_CONFIG, MPU_ADDR_USED);
 }
 
 /*
@@ -474,7 +485,7 @@ void MPU_GyroScaleChange(MPU_GYRO_SCALE new_scale){
  *@param:  raw_data_read: Information that is coming from gyroscope ADC
  *@retval: Meaningful angular velocity data
  */
-float MPU_GyroTransformRead(int16_t raw_data_read){
+static float MPU_GyroTransformRead(int16_t raw_data_read){
 
 	return (float)(raw_data_read * (1.0/gyro_sensitivity_used));
 }
@@ -502,10 +513,10 @@ float MPU_GyroTransformRead(int16_t raw_data_read){
 void MPU_GyroTempLowPassFilterConfig(uint8_t FCHOICE, DLPF DLPF_CFG){
 
 	CONFIG.data_cmd |= DLPF_CFG;
-	MPU_WRITE(CONFIG, addr_used);
+	__MPU_WRITE(CONFIG, MPU_ADDR_USED);
 
 	GYRO_CONFIG.data_cmd |= FCHOICE;
-	MPU_WRITE(GYRO_CONFIG, addr_used);
+	__MPU_WRITE(GYRO_CONFIG, MPU_ADDR_USED);
 }
 
 /* @brief: Used to remove DC bias from gyro sensor data output, the values in these registers are subtracted from the gyro going into the sensor registers
@@ -542,8 +553,8 @@ void MPU_GyroOffset(AXIS axis, float value){
 	OFFSET_TO_SEND_H.data_cmd |= (raw_data >> 8) && 0xff;
 	OFFSET_TO_SEND_L.data_cmd |= (raw_data & 0xFF);
 
-	MPU_WRITE(OFFSET_TO_SEND_H, addr_used);
-	MPU_WRITE(OFFSET_TO_SEND_L, addr_used);
+	__MPU_WRITE(OFFSET_TO_SEND_H, MPU_ADDR_USED);
+	__MPU_WRITE(OFFSET_TO_SEND_L, MPU_ADDR_USED);
 }
 
 /*
@@ -567,13 +578,13 @@ void MPU_FifoConfig(uint8_t enable_mpu_components, uint8_t fifo_mode){
 
 	USER_CTRL.data_cmd |= 1 << 6;						//FIFO Enable
 	USER_CTRL.data_cmd |= 1 << 2;						//Reset Fifo module
-	MPU_WRITE(USER_CTRL, addr_used);
+	__MPU_WRITE(USER_CTRL, MPU_ADDR_USED);
 
 	FIFO_EN.data_cmd |= enable_mpu_components;		//controls what data will be put at fifo
-	MPU_WRITE(FIFO_EN, addr_used);
+	__MPU_WRITE(FIFO_EN, MPU_ADDR_USED);
 
 	CONFIG.data_cmd |= fifo_mode << 6;					//controls if new data override or not the oldest
-	MPU_WRITE(CONFIG, addr_used);
+	__MPU_WRITE(CONFIG, MPU_ADDR_USED);
 }
 
 /*
@@ -589,8 +600,8 @@ int16_t MPU_FifoCounter(){
 	uint8_t data_register[2] = {0};
 	uint16_t to_return;
 
-	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&FIFO_COUNTH.register_address, sizeof(FIFO_COUNTH.register_address), HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&data_register, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(MPU_ADDR_USED << 1), (uint8_t*)&FIFO_COUNTH.register_address, sizeof(FIFO_COUNTH.register_address), HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(MPU_ADDR_USED << 1), (uint8_t*)&data_register, 2, HAL_MAX_DELAY);
 
 	to_return = ((uint16_t)(data_register[0] & 0x1F) << 8) | data_register[1];
 	return to_return;
@@ -611,8 +622,8 @@ int16_t MPU_FifoReadData(){
 	uint8_t data_register[2] = {0};
 	uint16_t to_return;
 
-	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&FIFO_R_W.register_address, sizeof(FIFO_R_W.register_address), HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(addr_used << 1), (uint8_t*)&data_register, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(MPU_ADDR_USED << 1), (uint8_t*)&FIFO_R_W.register_address, sizeof(FIFO_R_W.register_address), HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(MPU_ADDR_USED << 1), (uint8_t*)&data_register, 2, HAL_MAX_DELAY);
 
 	to_return = ((uint16_t)(data_register[0]  << 8)) | data_register[1];
 	return to_return;
@@ -627,7 +638,10 @@ int16_t MPU_FifoReadData(){
 
 uint8_t MPU_MagGetInfo(){
 
-	return MPU_READ(INFO, 1, AK8963_ADDR);
+	uint8_t info;
+
+	__MAG_READ(INFO, 1, &info);
+	return info;
 }
 
 
@@ -644,7 +658,10 @@ uint8_t MPU_MagGetInfo(){
  */
 uint8_t MPU_MagGetStatus1(){
 
-	return MPU_READ(ST1, 1, AK8963_ADDR);
+	uint8_t status;
+
+	__MAG_READ(ST1,1,&status);
+	return status;
 }
 
 /*
@@ -664,33 +681,64 @@ uint8_t MPU_MagGetStatus1(){
  */
 uint8_t MPU_MagGetStatus2(){
 
-	return MPU_READ(ST2, 1, AK8963_ADDR);
+	uint8_t status;
+
+	__MAG_READ(ST2, 1, &status);
+	return status;
 }
 
 /*
  *@brief: Measurement data of magnetic sensor X-axis/Y-axis/Z-axis
+  *	Steps accordingly with Ak8963 Datasheet (Rev. 2013/10):
+ *		1) Check data ready of not by any of the following method.
+ *		   - Polling DRDY bit of ST1 register
+ *		   - Monitor DRDY pin
+ *		2) Read ST1 register
+ *		   - DRDY: Shows Data ready or not.
+ *		   - DOR: Shows if any data has been skipped before the current data or not
+ *		3) Read measurement data
+ *		4) Read ST2 register
+ *		   - HOFL: :Shows if magnetic sensor is overflown or not
  *@param: Desired axis
  *@retval: information that is coming from MPU magnetometer em uT
  */
-int16_t MPU_MagRead(AXIS axis){
-	int16_t to_return;
+float MPU_MagRead(AXIS axis){
+	float to_return;
 
-	if(axis == X_AXIS){
-		int16_t magx;
-		magx = (MPU_READ(HXH, 1, AK8963_ADDR) << 8) | MPU_READ(HXL, 1, AK8963_ADDR);
-		to_return = magx * ( (magx_Adj - 128)/256.0  + 1 );
+	uint8_t st;
 
+	__MAG_READ(ST1, 1, &st);
+
+	if(st & 0x01){							/* Check if DRDY bit was set to 1 */
+
+		uint8_t mag_vet[2];
+
+		if(axis == X_AXIS){
+			int16_t magx;
+
+		   __MAG_READ(HXL, 2, mag_vet);
+
+			magx = mag_vet[1] << 8 | mag_vet[0];
+			to_return = magx * ( (magx_Adj - 128)/256.0  + 1 );
+		}
+		else if(axis == Y_AXIS){
+			int16_t magy;
+
+			__MAG_READ(HYL, 2, mag_vet);
+
+			magy = mag_vet[1] << 8 | mag_vet[0];
+			to_return = magy * ( (magy_Adj - 128)/256.0  + 1 );
+		}else{
+			int16_t magz;
+
+			 __MAG_READ(HZL, 2, mag_vet);
+
+			magz = mag_vet[1] << 8 | mag_vet[0];
+			to_return = magz * ( (magz_Adj - 128)/256.0  + 1 );
+		}
+		__MAG_READ(ST2, 1, &st);
 	}
-	else if(axis == Y_AXIS){
-		int16_t magy;
-		magy = (MPU_READ(HYH, 1, AK8963_ADDR) << 8) | MPU_READ(HYL, 1, AK8963_ADDR);
-		to_return = magy * ( (magy_Adj - 128)/256.0  + 1 );
 
-	}else{
-		int16_t magz;
-		magz = (MPU_READ(HZH, 1, AK8963_ADDR) << 8) | MPU_READ(HZL, 1, AK8963_ADDR);
-		to_return = magz * ( (magz_Adj - 128)/256.0  + 1 );
-	}
 	return to_return;
 }
 
@@ -702,7 +750,11 @@ int16_t MPU_MagRead(AXIS axis){
  */
 uint8_t MPU_MagWhoAmI(){
 
-	return MPU_READ(WIA, 1, AK8963_ADDR);
+	uint8_t mag_id;
+
+	 __MAG_READ(WIA, 1, &mag_id);
+
+	 return mag_id;
 }
 
 
@@ -716,13 +768,27 @@ uint8_t MPU_MagWhoAmI(){
  */
 void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING output_mde){
 
-	CNTL.data_cmd = mode | (output_mde << 5);
-	MPU_WRITE(CNTL, AK8963_ADDR);
+	USER_CTRL.data_cmd &= ~(1 << 5);					//Disable I2C Master, MPU will directly obtain mag data
+	__MPU_WRITE(USER_CTRL, MPU_ADDR_USED);
+
+	INT_PIN_CFG.data_cmd = 1 << 1;					//Enable the host to have control over aux pins
+	__MPU_WRITE(INT_PIN_CFG, MPU_ADDR_USED);
+
+	CNTL1.data_cmd = mode | (output_mde << 4);
+	__MPU_WRITE(CNTL1, AK8963_ADDR);
+
+	INT_PIN_CFG.data_cmd &= ~(1 << 1);
+	__MPU_WRITE(INT_PIN_CFG, MPU_ADDR_USED);
+
+	I2C_MST_CTRL.data_cmd = 1;
+	__MPU_WRITE(I2C_MST_CTRL, MPU_ADDR_USED);					/* Set I2C Master Clock to 333 kHz */
+
+	USER_CTRL.data_cmd |= 1 << 5;					//Enable I2C Master, MPU will directly obtain mag data
+	__MPU_WRITE(USER_CTRL, MPU_ADDR_USED);
 }
 
-
 /*
- * @brief: his  register  disables  I2C  bus  interface.  I2C  bus  interface  is  enabled  in  default.
+ * @brief: This  register  disables  I2C  bus  interface.  I2C  bus  interface  is  enabled  in  default.
  * Once I2C bus interface is disabled, it is impossible to write other value to I2CDIS register. To enable I2C bus interface,
  * reset AK8963 or input start condition 8 times continuously
  * @param: None
@@ -730,7 +796,58 @@ void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING output_mde
  */
 void MPU_MagI2CDisable(){
 	I2CDIS.data_cmd = 0b00011011;						//AS THE RM defines
-	MPU_WRITE(I2CDIS, AK8963_ADDR);
+	__MAG_WRITE(I2CDIS);
+}
+
+
+/*
+ *	@brief:	Used to write one specific configuration at magnetometer registers
+ *  @param:	One @MPU_REGISTER specific to the magnetometer
+ *	@retval: None
+ *
+ */
+void __MAG_WRITE(MPU_REGISTER reg_to_write)
+{
+	I2C_SLV0_ADDR.data_cmd = 0 << 7;				/* Start a write transaction */
+	I2C_SLV0_ADDR.data_cmd |= AK8963_ADDR;			/* Puts the magnetometer I2C address at first 7 bits */
+	__MPU_WRITE(I2C_SLV0_ADDR, MPU_ADDR_USED);
+
+	I2C_SLV0_REG.data_cmd = reg_to_write.register_address;
+	__MPU_WRITE(I2C_SLV0_REG, MPU_ADDR_USED);
+
+	I2C_SLV0_DO.data_cmd = reg_to_write.data_cmd;
+	__MPU_WRITE(I2C_SLV0_DO, MPU_ADDR_USED);
+
+	I2C_SLV0_CTRL.data_cmd = 0x01 << 7;
+	I2C_SLV0_CTRL.data_cmd |= 0x01;
+	__MPU_WRITE(I2C_SLV0_CTRL, MPU_ADDR_USED);
+}
+
+/*
+ *	@brief:	Used to read one specific configuration from magnetometer registers
+ *  @param:
+ *  		reg_to_read: @MPU_REGISTER specific to the magnetometer
+ *  		bytes: Number of bytes to be read
+ *  		data_vet: Vetor where data will be placed
+ *	@retval: Error code TODO
+ *
+ */
+uint8_t __MAG_READ(MPU_REGISTER reg_to_read, uint8_t bytes, uint8_t data_vet[])
+{
+	I2C_SLV0_ADDR.data_cmd = 1 << 7;				/* Start a read transaction*/
+	I2C_SLV0_ADDR.data_cmd |= AK8963_ADDR;			/* Puts the magnetometer I2C address at the first 7 bits */
+	__MPU_WRITE(I2C_SLV0_ADDR, MPU_ADDR_USED);			/* Tells for what ext-sensor, mpu will make a read transaction */
+
+	I2C_SLV0_CTRL.data_cmd = 0x01 << 7;					/* Enabling reading data from this slave */
+	I2C_SLV0_CTRL.data_cmd |= bytes;					/* Number of bytes to be read from I2C slave 0 */
+	__MPU_WRITE(I2C_SLV0_CTRL, MPU_ADDR_USED);
+
+	I2C_SLV0_REG.data_cmd = reg_to_read.register_address;			/* What ext-sensor register, mpu will read */
+	__MPU_WRITE(I2C_SLV0_REG, MPU_ADDR_USED);
+
+	__MPU_READ(EXT_SENS_DATA_00, bytes, data_vet);			/* Here i must read EXT_SENS_DATA_0(bytes-1) */
+
+	return 0;												/*TODO: Error code will be made in the future */
 }
 
 /*
@@ -744,7 +861,7 @@ void MPU_MagI2CDisable(){
 void MPU_DisableComponents(MPU_DISABLE_AXIS disable_accel, MPU_DISABLE_AXIS disable_gyroscope){
 
 	PWR_MGMT_2.data_cmd = (disable_accel << 3) | disable_gyroscope;;		//information of what accel axis (last three bits) and gyro axis(first three bits) must be disable
-	MPU_WRITE(PWR_MGMT_2,addr_used);
+	__MPU_WRITE(PWR_MGMT_2, MPU_ADDR_USED);
 }
 
 /* @brief:  Reset all gyro, accel and digital temp signal path. This bit also clears all the data sensor registers
@@ -754,29 +871,30 @@ void MPU_DisableComponents(MPU_DISABLE_AXIS disable_accel, MPU_DISABLE_AXIS disa
 void MPU_ResetDataRegisters(){
 
 	USER_CTRL.data_cmd |= 1 << 0;
-	MPU_WRITE(USER_CTRL, addr_used);
+	__MPU_WRITE(USER_CTRL, MPU_ADDR_USED);
 	USER_CTRL.data_cmd &= ~(1 << 0);
 }
 
-/* @brief: Reset one or more sensor data path, the sensor register will not be cleared, for this, use @MPU_SignalPathReset
+/*
+ * @brief: Reset one or more sensor data path, the sensor register will not be cleared, for this, use @MPU_SignalPathReset
  * @param: sensor_to_reset: One value of @RESET_SENSOR_SIGNAL_PATH
  * @retval: None
- *
  */
 void MPU_SignalPathReset(RESET_SENSOR_SIGNAL_PATH sensor_to_reset){
 
 	SIGNAL_PATH_RESET.data_cmd  = sensor_to_reset;
-	MPU_WRITE(SIGNAL_PATH_RESET, addr_used);
+	__MPU_WRITE(SIGNAL_PATH_RESET, MPU_ADDR_USED);
 	SIGNAL_PATH_RESET.data_cmd  = 0;
 }
 
-/* @brief:  Reset internal registers and restores default settings
+/*
+ *  @brief:  Reset internal registers and restores default settings
  * @param:  None
  * @retval: None
  */
 void MPU_ResetWholeIC(){
 
 	PWR_MGMT_1.data_cmd |= 1 << 7;
-	MPU_WRITE(PWR_MGMT_1, addr_used);
+	__MPU_WRITE(PWR_MGMT_1, MPU_ADDR_USED);
 	PWR_MGMT_1.data_cmd &= ~(1 << 7);
 }

@@ -11,6 +11,7 @@
 #include "stm32f4xx_hal.h"
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
 
 //	Global definition
 
@@ -77,7 +78,6 @@ typedef enum{
 }RESET_SENSOR_SIGNAL_PATH;
 
 I2C_HandleTypeDef mpu_i2c_comm;						//Holds the i2c peripheral registers used by the mcu to connect with MPU
-uint8_t addr_used;									// holds the mpu i2c address
 
 //When the IMU comes, it contain the OTP values of the Accel factory trim. (Application note)
 //float accelx_factory_trim;
@@ -110,10 +110,10 @@ uint8_t addr_used;									// holds the mpu i2c address
  * Specify all of sensitivity available by the MPU-9250 accelerometer
  */
 typedef enum{
-	 ACCEL_FULL_SCALE_2g   =	00,
-	 ACCEL_FULL_SCALE_4g   =	01,
-	 ACCEL_FULL_SCALE_8g   = 	10,
-	 ACCEL_FULL_SCALE_16g  =	11
+	 ACCEL_FULL_SCALE_2g   =	0b00,
+	 ACCEL_FULL_SCALE_4g   =	0b01,
+	 ACCEL_FULL_SCALE_8g   = 	0b10,
+	 ACCEL_FULL_SCALE_16g  =	0b11
 }MPU_ACCEL_SCALE;
 
 uint16_t accel_sensitivity_used;			  //Currently accelerometer sensitivity used by the MPU
@@ -123,21 +123,17 @@ uint16_t accel_sensitivity_used;			  //Currently accelerometer sensitivity used 
  * 	 All of gyroscope specific definition will be placed at this place
  */
 
-#define GYRO_FCHOICE00			11
-#define GYRO_FCHOICE01			10
-#define GYRO_FCHOICE11			00
-
-
+#define GYRO_FCHOICE00			0b11
+#define GYRO_FCHOICE01			0b10
+#define GYRO_FCHOICE11			0b00
 typedef enum{
-	 GYRO_FULL_SCALE_250dps  =  00,
-	 GYRO_FULL_SCALE_500dps	 = 	01,
-	 GYRO_FULL_SCALE_1000dps =  10,
-	 GYRO_FULL_SCALE_2000dps =  11
+	 GYRO_FULL_SCALE_250dps  =  0b00,
+	 GYRO_FULL_SCALE_500dps	 = 	0b01,
+	 GYRO_FULL_SCALE_1000dps =  0b10,
+	 GYRO_FULL_SCALE_2000dps =  0b11
 }MPU_GYRO_SCALE;
 
 float gyro_sensitivity_used;			//Currently gyroscope sensitivity used by the MPU
-
-
 
 /*
  * 	All of MPU fifo specific definition will be placed at this place
@@ -162,21 +158,22 @@ float gyro_sensitivity_used;			//Currently gyroscope sensitivity used by the MPU
 #define FIFO_DISABLE_ACCEL		0
 
 /*
+ *
  * All of MPU magnetometer AK8963 specific definition will be placed at this place
  *
  */
-#define AK8963_ADDR 0x48
+#define AK8963_ADDR 0x0C
 #define AK8963_SENSITIVITY 0.6
 
 typedef enum{
 
-	MAG_POWER_DOWN 		         = 0000,
-	MAG_SINGLE_MEASUREMENT 		 = 0001,
-	MAG_CONTINUOUS_MEASUREMENT1  = 0010,
-	MAG_CONTINUOUS_MEASUREMENT2	 = 0110,
-	MAG_EXTERNAL_TRIGGER		 = 0100,
-	MAG_SELF_TEST 				 = 1000,
-	MAG_FUSE_ROOM				 = 1111
+	MAG_POWER_DOWN 		         = 0b0000,
+	MAG_SINGLE_MEASUREMENT 		 = 0b0001,		/* Sensor is measured for one time and data is output. Transits to power-down mode.	*/
+	MAG_CONTINUOUS_MEASUREMENT1  = 0b0010,		/* Sensor is measured periodically in 8Hz. */
+	MAG_CONTINUOUS_MEASUREMENT2	 = 0b0110,		/* Sensor is measured periodically in 100Hz. */
+	MAG_EXTERNAL_TRIGGER		 = 0b0100,		/* Sesor in measured for one time by external trigger. */
+	MAG_SELF_TEST 				 = 0b1000,		/* Sensor is self-tested and the result is output. */
+	MAG_FUSE_ROOM				 = 0b1111		/* Turn on the circuit needed to read out Fuse ROM. */
 }MPU_MAG_OPMODE;
 
 typedef enum{
@@ -189,9 +186,8 @@ int8_t magx_Adj, magy_Adj, magz_Adj;
 
 /*
  * MPU-9250 available registers
+ *
 */
-
-
 MPU_REGISTER SELF_TEST_X_GYRO;
 MPU_REGISTER SELF_TEST_Y_GYRO;
 MPU_REGISTER SELF_TEST_Z_GYRO;
@@ -306,7 +302,8 @@ MPU_REGISTER HYH;
 MPU_REGISTER HZL;
 MPU_REGISTER HZH;
 MPU_REGISTER ST2;
-MPU_REGISTER CNTL;
+MPU_REGISTER CNTL1;
+MPU_REGISTER CNTL2;
 MPU_REGISTER RSV;
 MPU_REGISTER ASTC;
 MPU_REGISTER TS1;
@@ -316,7 +313,7 @@ MPU_REGISTER ASAX;
 MPU_REGISTER ASAY;
 MPU_REGISTER ASAZ;
 
-//										 Driver functions
+/*										 Driver functions															*/
 
 /*
  * General MPU functions
@@ -337,17 +334,15 @@ void MPU_FifoConfig(uint8_t enable_mpu_components, uint8_t fifo_mode);
 /*
  * Accelerometer functions
  */
-int16_t MPU_AccelRead(AXIS axis);
+float MPU_AccelRead(AXIS axis);
 void MPU_AccelScaleChange(MPU_ACCEL_SCALE new_scale);
-float MPU_AccelTransformRead(int16_t raw_data_read);
 void MPU_AccelLowPassFilterConfig(uint8_t ACCEL_FCHOICE, uint8_t A_DLPF_CFG);
 void MPU_AccelOffset(AXIS axis, float value);
 
 /*
  * Gyroscope functions
  */
-int16_t MPU_GyroRead(AXIS axis);
-float MPU_GyroTransformRead(int16_t raw_data_read);
+float MPU_GyroRead(AXIS axis);
 void MPU_GyroScaleChange(MPU_GYRO_SCALE new_scale);
 void MPU_GyroTempLowPassFilterConfig(uint8_t FCHOICE, DLPF DLPF_CFG);
 void MPU_GyroOffset(AXIS axis, float value);
@@ -357,7 +352,6 @@ void MPU_GyroOffset(AXIS axis, float value);
  */
 int16_t MPU_ReadIC_Temperature();
 
-
 /*
  * Magnetometer functions
  *
@@ -365,7 +359,7 @@ int16_t MPU_ReadIC_Temperature();
 uint8_t MPU_MagGetInfo();
 uint8_t MPU_MagGetStatus1();
 uint8_t MPU_MagGetStatus2();
-int16_t MPU_MagRead(AXIS axis);
+float MPU_MagRead(AXIS axis);
 uint8_t MPU_MagWhoAmI();
 void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING output_mde);
 uint8_t MPU_MagConfigControl2(uint8_t reset);
