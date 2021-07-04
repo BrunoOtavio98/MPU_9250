@@ -183,7 +183,7 @@ typedef enum{
 	_16_BIT
 }MPU_MAG_OUTPUT_SETTING;
 
-int8_t magx_Adj, magy_Adj, magz_Adj;
+float magx_Adj, magy_Adj, magz_Adj;
 
 
 /*
@@ -321,7 +321,7 @@ MPU_REGISTER ASAZ;
  * General MPU functions
  */
 void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MPU_GYRO_SCALE gyro_scale);
-uint8_t MPU_Identity();
+uint8_t MPU_WhoAmI();
 void MPU_DisableComponents(MPU_DISABLE_AXIS disable_accel, MPU_DISABLE_AXIS disable_gyroscope);
 void MPU_ResetDataRegisters();
 void MPU_SignalPathReset(RESET_SENSOR_SIGNAL_PATH sensor_to_reset);

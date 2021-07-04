@@ -22,7 +22,7 @@ static void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING out
 void __MAG_WRITE(MPU_REGISTER reg_to_write);
 uint8_t __MAG_READ(MPU_REGISTER reg_to_read, uint8_t bytes, uint8_t data_vet[]);
 void __MPU_WRITE(MPU_REGISTER mpu_r, uint8_t addr);
-void __MPU_READ(MPU_REGISTER mpu_r,uint8_t number_of_bytes, uint8_t data_return[]);
+void __MPU_READ(MPU_REGISTER mpu_r,uint8_t number_of_bytes, uint8_t data_return[], uint8_t addr);
 
 uint8_t MPU_ADDR_USED;									// holds the mpu i2c address
 
@@ -239,10 +239,10 @@ void __MPU_WRITE(MPU_REGISTER mpu_r, uint8_t addr){
  * 			number_of_bytes - Number of bytes that will be read from MPU register
  * @retval: Information read from the register specified at mpu_r parameter
  */
-void __MPU_READ(MPU_REGISTER mpu_r, uint8_t number_of_bytes, uint8_t *data_return){
+void __MPU_READ(MPU_REGISTER mpu_r, uint8_t number_of_bytes, uint8_t *data_return, uint8_t addr){
 
-	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(MPU_ADDR_USED << 1), (uint8_t*)&mpu_r.register_address, sizeof(mpu_r.register_address), HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(MPU_ADDR_USED << 1), (uint8_t*)data_return, number_of_bytes, HAL_MAX_DELAY);
+	HAL_I2C_Master_Transmit(&mpu_i2c_comm, (uint16_t)(addr << 1), (uint8_t*)&mpu_r.register_address, sizeof(mpu_r.register_address), HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&mpu_i2c_comm, (uint16_t)(addr << 1), (uint8_t*)data_return, number_of_bytes, HAL_MAX_DELAY);
 }
 
 /*
@@ -275,7 +275,7 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
 	int16_t raw_data[6];
 	uint8_t return_data[14];
 
-	__MPU_READ(ACCEL_XOUT_H, 14, return_data);
+	__MPU_READ(ACCEL_XOUT_H, 14, return_data, MPU_ADDR_USED);
 
 	raw_data[0] =  return_data[0] << 8 | return_data[1];
 	raw_data[1] =  return_data[2] << 8 | return_data[3];
@@ -295,15 +295,28 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
 
 	uint8_t mag_return[6];
 	int16_t raw_mag_data[3];
+
+
+	uint8_t st;
+
+	HAL_Delay(1);
+	__MAG_READ(ST1, 1, &st);
+
+	if(st & 0x01 || st & 0x11){
+
 	__MAG_READ(HXL, 6, mag_return);
 
 	raw_mag_data[0] = mag_return[0] | mag_return[1] << 8;
 	raw_mag_data[1] = mag_return[2] | mag_return[3] << 8;
 	raw_mag_data[2] = mag_return[4] | mag_return[5] << 8;
 
-	mag_data[0] = AK8963_SENSITIVITY * raw_mag_data[0] * ( (magx_Adj - 128)/256.0  + 1 );
-	mag_data[1] = AK8963_SENSITIVITY * raw_mag_data[1] * ( (magy_Adj - 128)/256.0  + 1 );
-	mag_data[2] = AK8963_SENSITIVITY * raw_mag_data[2] * ( (magz_Adj - 128)/256.0  + 1 );
+	mag_data[0] = AK8963_SENSITIVITY * raw_mag_data[0] * magx_Adj;
+	mag_data[1] = AK8963_SENSITIVITY * raw_mag_data[1] * magy_Adj;
+	mag_data[2] = AK8963_SENSITIVITY * raw_mag_data[2] * magz_Adj;
+
+	}
+
+	__MAG_READ(ST2, 1, &st);
 
 	return 0;
 }
@@ -314,11 +327,11 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
  * @param:  None
  * @retval: Device identity
  */
-uint8_t MPU_Identity(){
+uint8_t MPU_WhoAmI(){
 
 	uint8_t mpu_identity;
 
-	__MPU_READ(WHO_AM_I,1, &mpu_identity);
+	__MPU_READ(WHO_AM_I,1, &mpu_identity, MPU_ADDR_USED);
 
 	return mpu_identity;
 }
@@ -333,15 +346,15 @@ float MPU_AccelRead(uint8_t axis){
 	uint8_t accel_data[2];
 
 	if(axis == X_AXIS){
-		__MPU_READ(ACCEL_XOUT_H, 2, accel_data);
+		__MPU_READ(ACCEL_XOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
 	}
 	else if(axis == Y_AXIS){
-		__MPU_READ(ACCEL_YOUT_H, 2, accel_data);
+		__MPU_READ(ACCEL_YOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
 	}
 	else{
-		__MPU_READ(ACCEL_ZOUT_H, 2, accel_data);
+		__MPU_READ(ACCEL_ZOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
 	}
 	return MPU_AccelTransformRead(data_return);
@@ -476,15 +489,15 @@ float MPU_GyroRead(uint8_t axis){
 	uint8_t giro_data[2];
 
 	if(axis == X_AXIS){
-		__MPU_READ(GYRO_XOUT_H, 2, giro_data);
+		__MPU_READ(GYRO_XOUT_H, 2, giro_data, MPU_ADDR_USED);
 		data_return = giro_data[0] << 8 | giro_data[1];
 	}
 	else if(axis == Y_AXIS){
-		__MPU_READ(GYRO_YOUT_H, 2, giro_data);
+		__MPU_READ(GYRO_YOUT_H, 2, giro_data, MPU_ADDR_USED);
 		data_return = giro_data[0] << 8 | giro_data[1];
 	}
 	else{
-		__MPU_READ(GYRO_ZOUT_H, 2, giro_data);
+		__MPU_READ(GYRO_ZOUT_H, 2, giro_data, MPU_ADDR_USED);
 		data_return = giro_data[0] << 8 | giro_data[1];
 	}
 	return MPU_GyroTransformRead(data_return);
@@ -748,7 +761,7 @@ uint8_t MPU_MagGetStatus2(){
  *@retval: information that is coming from MPU magnetometer em uT
  */
 float MPU_MagRead(AXIS axis){
-	float to_return;
+	float to_return = -60000;
 
 	uint8_t st;
 
@@ -764,7 +777,7 @@ float MPU_MagRead(AXIS axis){
 		   __MAG_READ(HXL, 2, mag_vet);
 
 			magx = mag_vet[1] << 8 | mag_vet[0];
-			to_return = AK8963_SENSITIVITY * magx * ( (magx_Adj - 128)/256.0  + 1 );
+			to_return = AK8963_SENSITIVITY * magx * magx_Adj;
 		}
 		else if(axis == Y_AXIS){
 			int16_t magy;
@@ -772,16 +785,20 @@ float MPU_MagRead(AXIS axis){
 			__MAG_READ(HYL, 2, mag_vet);
 
 			magy = mag_vet[1] << 8 | mag_vet[0];
-			to_return = AK8963_SENSITIVITY * magy * ( (magy_Adj - 128)/256.0  + 1 );
+			to_return = AK8963_SENSITIVITY * magy * magy_Adj;
 		}else{
 			int16_t magz;
 
 			 __MAG_READ(HZL, 2, mag_vet);
 
 			magz = mag_vet[1] << 8 | mag_vet[0];
-			to_return = AK8963_SENSITIVITY * magz * ( (magz_Adj - 128)/256.0  + 1 );
+			to_return = AK8963_SENSITIVITY * magz * magz_Adj;
 		}
 		__MAG_READ(ST2, 1, &st);
+	}
+
+	else if(st & 0x10){
+	__MAG_READ(ST2, 1, &st);
 	}
 
 	return to_return;
@@ -797,8 +814,7 @@ uint8_t MPU_MagWhoAmI(){
 
 	uint8_t mag_id;
 
-	 __MAG_READ(WIA, 1, &mag_id);
-
+	__MAG_READ(WIA, 1, &mag_id);
 	 return mag_id;
 }
 
@@ -824,17 +840,18 @@ static void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING out
 	CNTL1.data_cmd = MAG_FUSE_ROOM;
 	__MPU_WRITE(CNTL1, AK8963_ADDR);
 
-	__MAG_READ(ASAX, 1, &read_sensitity);
-	magx_Adj = read_sensitity;
+	__MPU_READ(ASAX, 1, &read_sensitity, AK8963_ADDR);
+	magx_Adj = (float)(read_sensitity - 128.0)/256.0 + 1;
 
-	__MAG_READ(ASAY, 1, &read_sensitity);
-	magy_Adj = read_sensitity;
+	__MPU_READ(ASAY, 1, &read_sensitity, AK8963_ADDR);
+	magy_Adj = (float)(read_sensitity - 128.0)/256.0 + 1;
 
-	__MAG_READ(ASAZ, 1, &read_sensitity);
-	magz_Adj = read_sensitity;
+	__MPU_READ(ASAZ, 1, &read_sensitity, AK8963_ADDR);
+	magz_Adj = (float)(read_sensitity - 128.0)/256.0 + 1;
 
 	CNTL1.data_cmd = MAG_POWER_DOWN;
 	__MPU_WRITE(CNTL1, AK8963_ADDR);
+	HAL_Delay(1);
 
 	CNTL1.data_cmd = mode | (output_mde << 4);
 	__MPU_WRITE(CNTL1, AK8963_ADDR);
@@ -907,7 +924,9 @@ uint8_t __MAG_READ(MPU_REGISTER reg_to_read, uint8_t bytes, uint8_t data_vet[])
 	I2C_SLV0_REG.data_cmd = reg_to_read.register_address;			/* What ext-sensor register, mpu will read */
 	__MPU_WRITE(I2C_SLV0_REG, MPU_ADDR_USED);
 
-	__MPU_READ(EXT_SENS_DATA_00, bytes, data_vet);			/* Here i must read EXT_SENS_DATA_0(bytes-1) */
+	HAL_Delay(1);
+
+	__MPU_READ(EXT_SENS_DATA_00, bytes, data_vet, MPU_ADDR_USED);			/* Here i must read EXT_SENS_DATA_0(bytes-1) */
 
 	return 0;												/*TODO: Error code will be made in the future */
 }
