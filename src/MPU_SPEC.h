@@ -25,6 +25,8 @@ typedef struct {
 /*
  * Possible axis that can be disabled
  */
+#define TEMP_SENSITIVITY 333.87
+
 typedef enum{
 	 DISABLE_ALL_AXIS = 0x07,
 	 DISABLE_X_Y_AXIS =	0x06,
@@ -134,7 +136,6 @@ typedef enum{
 }MPU_GYRO_SCALE;
 
 float gyro_sensitivity_used;			//Currently gyroscope sensitivity used by the MPU
-
 /*
  * 	All of MPU fifo specific definition will be placed at this place
  *
@@ -327,6 +328,7 @@ void MPU_ResetDataRegisters();
 void MPU_SignalPathReset(RESET_SENSOR_SIGNAL_PATH sensor_to_reset);
 void MPU_ResetWholeIC();
 uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_data[]);
+float MPU_Temperature_Read();
 /*
  * Fifo functions
  */
@@ -341,6 +343,8 @@ float MPU_AccelRead(AXIS axis);
 void MPU_AccelScaleChange(MPU_ACCEL_SCALE new_scale);
 void MPU_AccelLowPassFilterConfig(uint8_t ACCEL_FCHOICE, uint8_t A_DLPF_CFG);
 void MPU_AccelOffset(AXIS axis, float value);
+void MPU_AccelCalibrate(uint16_t numberOfSamples, UART_HandleTypeDef *uart);
+uint8_t MPU_GetFlagAccelCalibrated();
 
 /*
  * Gyroscope functions
@@ -349,7 +353,8 @@ float MPU_GyroRead(AXIS axis);
 void MPU_GyroScaleChange(MPU_GYRO_SCALE new_scale);
 void MPU_GyroTempLowPassFilterConfig(uint8_t FCHOICE, DLPF DLPF_CFG);
 void MPU_GyroOffset(AXIS axis, float value);
-
+void MPU_GyroCalibrate(uint16_t numberOfSamples);
+uint8_t MPU_GetFlagGyroCalibrated();
 /*
  * Temperature sensor functions
  */

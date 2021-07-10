@@ -10,6 +10,8 @@
  */
 
 #include "MPU_SPEC.h"
+#include <string.h>
+#include<stdio.h>
 
 static void I2C_Initialization(uint8_t I2Cx);
 static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale);
@@ -18,6 +20,7 @@ static void Register_Initialization();
 static float MPU_AccelTransformRead(int16_t raw_data_read);
 static float MPU_GyroTransformRead(int16_t raw_data_read);
 static void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING output_mde);
+static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfSamples, float *accumulated, UART_HandleTypeDef *uart);
 
 void __MAG_WRITE(MPU_REGISTER reg_to_write);
 uint8_t __MAG_READ(MPU_REGISTER reg_to_read, uint8_t bytes, uint8_t data_vet[]);
@@ -25,6 +28,22 @@ void __MPU_WRITE(MPU_REGISTER mpu_r, uint8_t addr);
 void __MPU_READ(MPU_REGISTER mpu_r,uint8_t number_of_bytes, uint8_t data_return[], uint8_t addr);
 
 uint8_t MPU_ADDR_USED;									// holds the mpu i2c address
+
+static float gyroxStaticBias;
+static float gyroyStaticBias;
+static float gyrozStaticBias;
+static uint8_t flagGyroCalibrated = 0;
+
+static float accelxUpStaticBias;
+static float accelyUpStaticBias;
+static float accelzUpStaticBias;
+
+static float accelxDownStaticBias;
+static float accelyDownStaticBias;
+static float accelzDownStaticBias;
+
+
+static uint8_t flagAccelCalibrated = 0;
 
 /*
  * @brief: MPU initialization function
@@ -57,9 +76,7 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MP
 	HAL_Delay(1);								/* To change from power-down mode to another mode, its necessary at least 100 us (AK8963 datasheet Rev. 10/2013) */
 	MPU_MagConfigControl(MAG_CONTINUOUS_MEASUREMENT2, _16_BIT);
 
-	/*	accelx_factory_trim = (__MPU_READ(XA_OFFSET_H, 1) << 8 | __MPU_READ(XA_OFFSET_L, 1))/2048.0;		*/
-	/*	accely_factory_trim = (__MPU_READ(YA_OFFSET_H, 1) << 8 | __MPU_READ(YA_OFFSET_L, 1))/2048.0;		*/
-	/*	accelz_factory_trim = (__MPU_READ(ZA_OFFSET_H, 1) << 8 | __MPU_READ(ZA_OFFSET_L, 1))/2048.0;		*/
+	MPU_GyroCalibrate(1000);
 }
 
 /*
@@ -248,16 +265,21 @@ void __MPU_READ(MPU_REGISTER mpu_r, uint8_t number_of_bytes, uint8_t *data_retur
 /*
  * @brief:  Function to read last temperature data
  * @param:  None
- * @retval: Raw information that is coming from temperature register
+ * @retval: IC temperature
  */
-int16_t MPU_Temperature_Read(){
+float MPU_Temperature_Read(){
 
-//	int16_t data_return;
+	uint8_t raw_temp[2];
+	int16_t signed_raw;
+	float tempSensor;
 
-//	data_return = (int16_t)(__MPU_READ(TEMP_OUT_H) << 8);
-//	data_return |= __MPU_READ(TEMP_OUT_L);
-//	return data_return;
-	return 0;
+	__MPU_READ(TEMP_OUT_H, 2, raw_temp, MPU_ADDR_USED);
+
+	signed_raw = raw_temp[0] << 8 | raw_temp[1];
+
+	tempSensor = signed_raw/TEMP_SENSITIVITY + 21;
+
+	return tempSensor;
 }
 
 
@@ -285,18 +307,18 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
 	raw_data[4] =  return_data[10] << 8 | return_data[11];
 	raw_data[5] =  return_data[12] << 8 | return_data[13];
 
-	for(uint8_t i = 0; i<3; i++){
-		accel_data[i] = MPU_AccelTransformRead(raw_data[i]);
-	}
 
-	for(uint8_t i = 3; i<6; i++){
-		gyro_data[i-3] = MPU_GyroTransformRead(raw_data[i]);
-	}
+	accel_data[0] = MPU_AccelTransformRead(raw_data[0]) - (accelxUpStaticBias + accelxDownStaticBias)/2;
+	accel_data[1] = MPU_AccelTransformRead(raw_data[1]) - (accelyUpStaticBias + accelyDownStaticBias)/2;
+	accel_data[2] = MPU_AccelTransformRead(raw_data[2]) - (accelzUpStaticBias + accelzDownStaticBias)/2;
+
+	gyro_data[0] = MPU_GyroTransformRead(raw_data[3]) - gyroxStaticBias;
+	gyro_data[1] = MPU_GyroTransformRead(raw_data[4]) - gyroyStaticBias;
+	gyro_data[2] = MPU_GyroTransformRead(raw_data[5]) - gyrozStaticBias;
+
 
 	uint8_t mag_return[6];
 	int16_t raw_mag_data[3];
-
-
 	uint8_t st;
 
 	HAL_Delay(1);
@@ -348,16 +370,22 @@ float MPU_AccelRead(uint8_t axis){
 	if(axis == X_AXIS){
 		__MPU_READ(ACCEL_XOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
+
+		return MPU_AccelTransformRead(data_return) - (accelxUpStaticBias + accelxDownStaticBias)/2;
 	}
 	else if(axis == Y_AXIS){
 		__MPU_READ(ACCEL_YOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
+
+		return MPU_AccelTransformRead(data_return) - (accelyUpStaticBias + accelyDownStaticBias)/2;
 	}
 	else{
 		__MPU_READ(ACCEL_ZOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
+
+		return MPU_AccelTransformRead(data_return) - (accelzUpStaticBias + accelzDownStaticBias)/2;
 	}
-	return MPU_AccelTransformRead(data_return);
+
 }
 
 /* @brief:  Function used to change the sensitivity of the accelerometer at any desired instant
@@ -479,6 +507,172 @@ void MPU_AccelOffset(uint8_t axis, float value){
 	__MPU_WRITE(OFFSET_ACCEL_L, MPU_ADDR_USED);
 }
 
+/*
+ *	@brief: Accelerometer calibration
+ *			1) Z pointing up (+9.8)
+ *			2) Z pointing down (-9.8)
+ *			3) x pointing up (+9.8)
+ *			4) x pointing down (-9.8)
+ *			5) y pointing up (+9.8)
+ *			6) y pointing down (-9.8)
+ *	The algorithm will wait if some of this steps above is not guarantee in the correct step
+ *
+ *	@param:
+ *			numberOfSamples: Number of accelerometer data
+ *			uart: To inform the user what step is in the process
+ *
+ *	@return: See MPU_GetFlagAccelCalibrated
+ */
+void MPU_AccelCalibrate(uint16_t numberOfSamples, UART_HandleTypeDef *uart)
+{
+
+	float accelXUp = 0.0;
+	float accelXDown = 0.0;
+
+	float accelYUp = 0.0;
+	float accelYDown = 0.0;
+
+	float accelZUp = 0.0;
+	float accelZDown = 0.0;
+
+	uint8_t state = 0;
+
+	char buffer[500];
+
+	snprintf(buffer, sizeof(buffer), "Z axis up now\n");
+	HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+	state = oneAxisAccelCalibration(Z_AXIS, 1, numberOfSamples, &accelZUp, uart);
+	if(state)
+	{
+
+		snprintf(buffer, sizeof(buffer),  "Z axis down now\n");
+		HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+		state = oneAxisAccelCalibration(Z_AXIS, 0, numberOfSamples, &accelZDown, uart);
+		if(state)
+		{
+
+			snprintf(buffer, sizeof(buffer),  "Y axis up now\n");
+			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+			state = oneAxisAccelCalibration(Y_AXIS, 1, numberOfSamples, &accelYUp, uart);
+			if(state)
+			{
+
+				snprintf(buffer, sizeof(buffer),  "Y axis down now\n");
+				HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+				state = oneAxisAccelCalibration(Y_AXIS, 0, numberOfSamples, &accelYDown, uart);
+				if(state)
+				{
+
+					snprintf(buffer, sizeof(buffer),  "X axis up now\n");
+					HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+					state = oneAxisAccelCalibration(X_AXIS, 1, numberOfSamples, &accelXUp, uart);
+					if(state)
+					{
+						snprintf(buffer, sizeof(buffer),  "X axis down now\n");
+						HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+						state = oneAxisAccelCalibration(X_AXIS, 0, numberOfSamples, &accelXDown, uart);
+						if(state)
+						{
+
+							accelxUpStaticBias = accelXUp/numberOfSamples;
+							accelxDownStaticBias = accelXDown/numberOfSamples;
+
+							accelyUpStaticBias = accelYUp/numberOfSamples;
+							accelyDownStaticBias = accelYDown/numberOfSamples;
+
+							accelzUpStaticBias = accelZUp/numberOfSamples;
+							accelzDownStaticBias = accelZDown/numberOfSamples;
+
+							flagAccelCalibrated = 1;
+						}
+					}
+				}
+			}
+		}
+	}
+
+}
+
+static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfSamples, float *accumulated, UART_HandleTypeDef *uart)
+{
+	int i;
+	float lastRead;
+
+	char buffer[500];
+	if(up)
+	{
+		for( i = 0; i<500000; i++)			/* The maximum time that the user have to turn the axis to the correct way */
+		{
+			lastRead = MPU_AccelRead(axis);
+
+			if(lastRead > 9.0)
+				break;						/* This means that the axis in pointing up so the calibration can continue */
+
+			snprintf(buffer, sizeof(buffer), "Value below the required\n");
+			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+		}
+
+		if(i == 500000)						/* Calibration will not proceed */
+		{
+
+			snprintf(buffer, sizeof(buffer), "Maximum time expired \n");
+			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+			return 0;
+		}
+
+		snprintf(buffer, sizeof(buffer), "Sampling started!\n");
+		HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+		for(i = 0; i<numberOfSamples; i++){
+			*accumulated += MPU_AccelRead(axis);
+		}
+	}
+
+	else
+	{
+		for( i = 0; i<500000; i++)			/* The maximum time that the user have to turn the axis to the correct way */
+		{
+			lastRead = MPU_AccelRead(axis);
+
+			if(lastRead < -9.0)
+				break;/* This means that the axis in pointing down so the calibration can continue */
+
+			snprintf(buffer, sizeof(buffer), "Value above the required\n");
+			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+		}
+
+		if(i == 500000)						/* Calibration will not proceed */
+		{
+			snprintf(buffer, sizeof(buffer), "Maximum time expired \n");
+			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+			return 0;
+		}
+		snprintf(buffer, sizeof(buffer), "Sampling started!\n");
+		for(i = 0; i<numberOfSamples; i++){
+			*accumulated += MPU_AccelRead(axis);
+		}
+
+	}
+	return 1;
+}
+
+
+/*	@brief: Return the accelerometer calibration state
+ *	@param: None
+ *	@retval: Flag that indicates the state of the calibration process
+ */
+uint8_t MPU_GetFlagAccelCalibrated()
+{
+	return flagAccelCalibrated;
+}
+
+
 /*@brief: 	Function to read last gyroscope data
  *@param: 	axis - Specify what axis will be read, can be: X_AXIS, Y_AXIS or Z_AXIS
  *@retval: 	Raw information that is coming from MPU gyroscope ADC
@@ -491,16 +685,19 @@ float MPU_GyroRead(uint8_t axis){
 	if(axis == X_AXIS){
 		__MPU_READ(GYRO_XOUT_H, 2, giro_data, MPU_ADDR_USED);
 		data_return = giro_data[0] << 8 | giro_data[1];
+		return MPU_GyroTransformRead(data_return) - gyroxStaticBias;
 	}
 	else if(axis == Y_AXIS){
 		__MPU_READ(GYRO_YOUT_H, 2, giro_data, MPU_ADDR_USED);
 		data_return = giro_data[0] << 8 | giro_data[1];
+		return MPU_GyroTransformRead(data_return) - gyroyStaticBias;
 	}
 	else{
 		__MPU_READ(GYRO_ZOUT_H, 2, giro_data, MPU_ADDR_USED);
 		data_return = giro_data[0] << 8 | giro_data[1];
+		return MPU_GyroTransformRead(data_return) - gyrozStaticBias;
 	}
-	return MPU_GyroTransformRead(data_return);
+
 }
 
 /*
@@ -546,6 +743,43 @@ void MPU_GyroScaleChange(MPU_GYRO_SCALE new_scale){
 static float MPU_GyroTransformRead(int16_t raw_data_read){
 
 	return (float)(raw_data_read * (1.0/gyro_sensitivity_used));
+}
+
+/*
+ * 	@brief: Remove gyro static bias. Dont move mpu when this function is called. 1000 samples will be collected from both axis
+ *	@param: Number of samples to be used in the calibration process
+ *	@retval: See MPU_GetFlagGyroCalibrated
+ */
+void MPU_GyroCalibrate(uint16_t numberOfSamples)
+{
+	flagGyroCalibrated  = 0;
+
+	float gyrox = 0;
+	float gyroy = 0;
+	float gyroz = 0;
+	for(uint16_t i = 0; i<numberOfSamples; i++)
+	{
+		gyrox += MPU_GyroRead(X_AXIS);
+		gyroy += MPU_GyroRead(Y_AXIS);
+		gyroz += MPU_GyroRead(Z_AXIS);
+	}
+
+	gyroxStaticBias = gyrox/numberOfSamples;
+	gyroyStaticBias = gyroy/numberOfSamples;
+	gyrozStaticBias = gyroz/numberOfSamples;
+
+	flagGyroCalibrated = 1;
+
+}
+
+/*
+ * 	@brief: State of the calibration process
+ *	@param: None
+ *	@retval: Return the state of the gyro calibration process
+ */
+uint8_t MPU_GetFlagGyroCalibrated()
+{
+	return flagGyroCalibrated;
 }
 
 /*
@@ -859,8 +1093,8 @@ static void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING out
 	INT_PIN_CFG.data_cmd &= ~(1 << 1);
 	__MPU_WRITE(INT_PIN_CFG, MPU_ADDR_USED);
 
-	I2C_MST_CTRL.data_cmd = 1;
-	__MPU_WRITE(I2C_MST_CTRL, MPU_ADDR_USED);					/* Set I2C Master Clock to 333 kHz */
+	I2C_MST_CTRL.data_cmd = 0xD;
+	__MPU_WRITE(I2C_MST_CTRL, MPU_ADDR_USED);					/* Set I2C Master Clock to 400 kHz */
 
 	USER_CTRL.data_cmd |= 1 << 5;					//Enable I2C Master, MPU will directly obtain mag data
 	__MPU_WRITE(USER_CTRL, MPU_ADDR_USED);
@@ -917,12 +1151,12 @@ uint8_t __MAG_READ(MPU_REGISTER reg_to_read, uint8_t bytes, uint8_t data_vet[])
 	I2C_SLV0_ADDR.data_cmd |= AK8963_ADDR;			/* Puts the magnetometer I2C address at the first 7 bits */
 	__MPU_WRITE(I2C_SLV0_ADDR, MPU_ADDR_USED);			/* Tells for what ext-sensor, mpu will make a read transaction */
 
+	I2C_SLV0_REG.data_cmd = reg_to_read.register_address;			/* What ext-sensor register, mpu will read */
+	__MPU_WRITE(I2C_SLV0_REG, MPU_ADDR_USED);
+
 	I2C_SLV0_CTRL.data_cmd = 0x01 << 7;					/* Enabling reading data from this slave */
 	I2C_SLV0_CTRL.data_cmd |= bytes;					/* Number of bytes to be read from I2C slave 0 */
 	__MPU_WRITE(I2C_SLV0_CTRL, MPU_ADDR_USED);
-
-	I2C_SLV0_REG.data_cmd = reg_to_read.register_address;			/* What ext-sensor register, mpu will read */
-	__MPU_WRITE(I2C_SLV0_REG, MPU_ADDR_USED);
 
 	HAL_Delay(1);
 
