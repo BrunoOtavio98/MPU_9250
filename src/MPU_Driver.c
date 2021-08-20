@@ -12,6 +12,9 @@
 #include "MPU_SPEC.h"
 #include <string.h>
 #include<stdio.h>
+#include<stdlib.h>
+
+#define G 9.8065
 
 static void I2C_Initialization(uint8_t I2Cx);
 static void AccelScaleConfig(MPU_ACCEL_SCALE accel_scale);
@@ -20,7 +23,16 @@ static void Register_Initialization();
 static float MPU_AccelTransformRead(int16_t raw_data_read);
 static float MPU_GyroTransformRead(int16_t raw_data_read);
 static void MPU_MagConfigControl(MPU_MAG_OPMODE mode, MPU_MAG_OUTPUT_SETTING output_mde);
-static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfSamples, float *accumulated, UART_HandleTypeDef *uart);
+static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfSamples, float *accumulatedx, float *accumulatedy, float *accumulatedz, UART_HandleTypeDef *uart, char strDebug[]);
+static float AccelRawReading(uint8_t axis);
+static float GyroRawReading(uint8_t axis);
+static void accelCalibration(float *rawData);
+static void matrixMult(float *m1, float *m2, float *mr, int m1Line, int m1Column, int m2Column);
+static void matrixTransp(float *m1, float *transp, int lines, int columns);
+static void matrixInv(float *mfrom, float *mto, int lines, int columns);
+static void matrixCopy(float *mfrom, float *mto, int lines, int columns);
+static void eye(float *m, int lines, int columns);
+static void hardCodedAccelParam();
 
 void __MAG_WRITE(MPU_REGISTER reg_to_write);
 uint8_t __MAG_READ(MPU_REGISTER reg_to_read, uint8_t bytes, uint8_t data_vet[]);
@@ -34,17 +46,9 @@ static float gyroyStaticBias;
 static float gyrozStaticBias;
 static uint8_t flagGyroCalibrated = 0;
 
-static float accelxUpStaticBias;
-static float accelyUpStaticBias;
-static float accelzUpStaticBias;
-
-static float accelxDownStaticBias;
-static float accelyDownStaticBias;
-static float accelzDownStaticBias;
-
-
 static uint8_t flagAccelCalibrated = 0;
 
+static float *accelCalibrationParam;
 /*
  * @brief: MPU initialization function
  * @param: i2c - Specify what i2c peripheral will be used, the values can be ( USE_I2C1, USE_I2C2 or USE_I2C3 )
@@ -77,6 +81,29 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MP
 	MPU_MagConfigControl(MAG_CONTINUOUS_MEASUREMENT2, _16_BIT);
 
 	MPU_GyroCalibrate(1000);
+
+	accelCalibrationParam = malloc(4 * 3 * sizeof(float));
+
+	hardCodedAccelParam();
+
+}
+
+static void hardCodedAccelParam()
+{
+
+	accelCalibrationParam[0] = 1.0041;
+	accelCalibrationParam[1] = 0.017506;
+	accelCalibrationParam[2] = -0.083167;
+	accelCalibrationParam[3] = 0.0164;
+	accelCalibrationParam[4] = 1.0067;
+	accelCalibrationParam[5] = 0.029136;
+	accelCalibrationParam[6] = -0.025811;
+	accelCalibrationParam[7] = 0.040776;
+	accelCalibrationParam[8] = 0.99886;
+	accelCalibrationParam[9] = -0.59662;
+	accelCalibrationParam[10] = -0.12791;
+	accelCalibrationParam[11] = 1.4257;
+
 }
 
 /*
@@ -296,6 +323,8 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
 
 	int16_t raw_data[6];
 	uint8_t return_data[14];
+	float rawAccel[4];
+
 
 	__MPU_READ(ACCEL_XOUT_H, 14, return_data, MPU_ADDR_USED);
 
@@ -308,14 +337,16 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
 	raw_data[5] =  return_data[12] << 8 | return_data[13];
 
 
-	accel_data[0] = MPU_AccelTransformRead(raw_data[0]) - (accelxUpStaticBias + accelxDownStaticBias)/2;
-	accel_data[1] = MPU_AccelTransformRead(raw_data[1]) - (accelyUpStaticBias + accelyDownStaticBias)/2;
-	accel_data[2] = MPU_AccelTransformRead(raw_data[2]) - (accelzUpStaticBias + accelzDownStaticBias)/2;
+	rawAccel[0] = MPU_AccelTransformRead(raw_data[0]);
+	rawAccel[1] = MPU_AccelTransformRead(raw_data[1]);
+	rawAccel[2] = MPU_AccelTransformRead(raw_data[2]);
+	rawAccel[3] = 1;
+
+	matrixMult(rawAccel, accelCalibrationParam, accel_data, 1, 4, 3);
 
 	gyro_data[0] = MPU_GyroTransformRead(raw_data[3]) - gyroxStaticBias;
 	gyro_data[1] = MPU_GyroTransformRead(raw_data[4]) - gyroyStaticBias;
 	gyro_data[2] = MPU_GyroTransformRead(raw_data[5]) - gyrozStaticBias;
-
 
 	uint8_t mag_return[6];
 	int16_t raw_mag_data[3];
@@ -347,7 +378,7 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
 /*
  * @brief:	Return the device identity
  * @param:  None
- * @retval: Device identity
+ * @retval: Device identityss
  */
 uint8_t MPU_WhoAmI(){
 
@@ -365,27 +396,63 @@ uint8_t MPU_WhoAmI(){
 float MPU_AccelRead(uint8_t axis){
 
 	int16_t data_return;
+	uint8_t accel_data[6];
+	float accelx, accely, accelz;
+	float rawAccel[3];
+	float calAccel[3];
+
+	__MPU_READ(ACCEL_XOUT_H, 6, accel_data, MPU_ADDR_USED);
+
+	data_return = accel_data[0] << 8 | accel_data[1];
+	accelx = MPU_AccelTransformRead(data_return);
+
+	data_return = accel_data[2] << 8 | accel_data[3];
+	accely = MPU_AccelTransformRead(data_return);
+
+	data_return = accel_data[4] << 8 | accel_data[5];
+	accelz = MPU_AccelTransformRead(data_return);
+
+	rawAccel[0] = accelz;
+	rawAccel[1] = accely;
+	rawAccel[2] = accelx;
+	rawAccel[3] = 1;
+
+	matrixMult(rawAccel, accelCalibrationParam, calAccel, 1, 4, 3);
+	if(axis == X_AXIS){
+		return calAccel[2];
+	}
+	else if(axis == Y_AXIS){
+		return calAccel[1];
+	}
+	else{
+		return calAccel[0];
+	}
+
+}
+
+static float AccelRawReading(uint8_t axis)
+{
+	int16_t data_return;
 	uint8_t accel_data[2];
 
 	if(axis == X_AXIS){
 		__MPU_READ(ACCEL_XOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
 
-		return MPU_AccelTransformRead(data_return) - (accelxUpStaticBias + accelxDownStaticBias)/2;
+		return MPU_AccelTransformRead(data_return);
 	}
 	else if(axis == Y_AXIS){
 		__MPU_READ(ACCEL_YOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
 
-		return MPU_AccelTransformRead(data_return) - (accelyUpStaticBias + accelyDownStaticBias)/2;
+		return MPU_AccelTransformRead(data_return);
 	}
 	else{
 		__MPU_READ(ACCEL_ZOUT_H, 2, accel_data, MPU_ADDR_USED);
 		data_return = accel_data[0] << 8 | accel_data[1];
 
-		return MPU_AccelTransformRead(data_return) - (accelzUpStaticBias + accelzDownStaticBias)/2;
+		return MPU_AccelTransformRead(data_return);
 	}
-
 }
 
 /* @brief:  Function used to change the sensitivity of the accelerometer at any desired instant
@@ -516,6 +583,7 @@ void MPU_AccelOffset(uint8_t axis, float value){
  *			5) y pointing up (+9.8)
  *			6) y pointing down (-9.8)
  *	The algorithm will wait if some of this steps above is not guarantee in the correct step
+ *	The algorithm used was based on the Application note 3192 (Using LSM303DLH for a tilt compensated electronic compass) from STMicroeletronics.
  *
  *	@param:
  *			numberOfSamples: Number of accelerometer data
@@ -525,15 +593,29 @@ void MPU_AccelOffset(uint8_t axis, float value){
  */
 void MPU_AccelCalibrate(uint16_t numberOfSamples, UART_HandleTypeDef *uart)
 {
+	float axisXData_XUP = 0.0;
+	float axisYData_XUP = 0.0;
+	float axisZData_XUP = 0.0;
 
-	float accelXUp = 0.0;
-	float accelXDown = 0.0;
+	float axisXData_XDOWN = 0.0;
+	float axisYData_XDOWN = 0.0;
+	float axisZData_XDOWN = 0.0;
 
-	float accelYUp = 0.0;
-	float accelYDown = 0.0;
+	float axisXData_YUP = 0.0;
+	float axisYData_YUP = 0.0;
+	float axisZData_YUP = 0.0;
 
-	float accelZUp = 0.0;
-	float accelZDown = 0.0;
+	float axisXData_YDOWN = 0.0;
+	float axisYData_YDOWN = 0.0;
+	float axisZData_YDOWN = 0.0;
+
+	float axisXData_ZUP = 0.0;
+	float axisYData_ZUP = 0.0;
+	float axisZData_ZUP = 0.0;
+
+	float axisXData_ZDOWN = 0.0;
+	float axisYData_ZDOWN = 0.0;
+	float axisZData_ZDOWN = 0.0;
 
 	uint8_t state = 0;
 
@@ -542,53 +624,54 @@ void MPU_AccelCalibrate(uint16_t numberOfSamples, UART_HandleTypeDef *uart)
 	snprintf(buffer, sizeof(buffer), "Z axis up now\n");
 	HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 
-	state = oneAxisAccelCalibration(Z_AXIS, 1, numberOfSamples, &accelZUp, uart);
+	state = oneAxisAccelCalibration(Z_AXIS, 1, numberOfSamples, &axisXData_ZUP, &axisYData_ZUP, &axisZData_ZUP, uart, "Z Up: ");
 	if(state)
 	{
 
 		snprintf(buffer, sizeof(buffer),  "Z axis down now\n");
 		HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 
-		state = oneAxisAccelCalibration(Z_AXIS, 0, numberOfSamples, &accelZDown, uart);
+		state = oneAxisAccelCalibration(Z_AXIS, 0, numberOfSamples, &axisXData_ZDOWN, &axisYData_ZDOWN, &axisZData_ZDOWN, uart, "Z Down: ");
 		if(state)
 		{
 
 			snprintf(buffer, sizeof(buffer),  "Y axis up now\n");
 			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 
-			state = oneAxisAccelCalibration(Y_AXIS, 1, numberOfSamples, &accelYUp, uart);
+			state = oneAxisAccelCalibration(Y_AXIS, 1, numberOfSamples, &axisXData_YUP, &axisYData_YUP, &axisZData_YUP, uart, "Y Up: ");
 			if(state)
 			{
 
 				snprintf(buffer, sizeof(buffer),  "Y axis down now\n");
 				HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 
-				state = oneAxisAccelCalibration(Y_AXIS, 0, numberOfSamples, &accelYDown, uart);
+				state = oneAxisAccelCalibration(Y_AXIS, 0, numberOfSamples, &axisXData_YDOWN, &axisYData_YDOWN, &axisZData_YDOWN, uart, "Y Down: ");
 				if(state)
 				{
 
 					snprintf(buffer, sizeof(buffer),  "X axis up now\n");
 					HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 
-					state = oneAxisAccelCalibration(X_AXIS, 1, numberOfSamples, &accelXUp, uart);
+					state = oneAxisAccelCalibration(X_AXIS, 1, numberOfSamples, &axisXData_XUP, &axisYData_XUP, &axisZData_XUP, uart, "X Up: ");
 					if(state)
 					{
 						snprintf(buffer, sizeof(buffer),  "X axis down now\n");
 						HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 
-						state = oneAxisAccelCalibration(X_AXIS, 0, numberOfSamples, &accelXDown, uart);
+						state = oneAxisAccelCalibration(X_AXIS, 0, numberOfSamples, &axisXData_XDOWN, &axisYData_XDOWN, &axisZData_XDOWN, uart, "X Down: ");
 						if(state)
 						{
 
-							accelxUpStaticBias = accelXUp/numberOfSamples;
-							accelxDownStaticBias = accelXDown/numberOfSamples;
+							float rawData[6][4] = {
+									{axisXData_ZUP/numberOfSamples, axisYData_ZUP/numberOfSamples, axisZData_ZUP/numberOfSamples, 1},
+									{axisXData_ZDOWN/numberOfSamples, axisYData_ZDOWN/numberOfSamples, axisZData_ZDOWN/numberOfSamples, 1},
+									{axisXData_YUP/numberOfSamples, axisYData_YUP/numberOfSamples, axisZData_YUP/numberOfSamples, 1},
+									{axisXData_YDOWN/numberOfSamples, axisYData_YDOWN/numberOfSamples, axisZData_YDOWN/numberOfSamples, 1},
+									{axisXData_XUP/numberOfSamples, axisYData_XUP/numberOfSamples, axisZData_XUP/numberOfSamples, 1},
+									{axisXData_XDOWN/numberOfSamples, axisYData_XDOWN/numberOfSamples, axisZData_XDOWN/numberOfSamples, 1},
+							};
 
-							accelyUpStaticBias = accelYUp/numberOfSamples;
-							accelyDownStaticBias = accelYDown/numberOfSamples;
-
-							accelzUpStaticBias = accelZUp/numberOfSamples;
-							accelzDownStaticBias = accelZDown/numberOfSamples;
-
+							accelCalibration(rawData);
 							flagAccelCalibrated = 1;
 						}
 					}
@@ -599,9 +682,9 @@ void MPU_AccelCalibrate(uint16_t numberOfSamples, UART_HandleTypeDef *uart)
 
 }
 
-static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfSamples, float *accumulated, UART_HandleTypeDef *uart)
+static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfSamples, float *accumulatedx, float *accumulatedy, float *accumulatedz, UART_HandleTypeDef *uart, char strDebug[])
 {
-	int i;
+	int i = 0;
 	float lastRead;
 
 	char buffer[500];
@@ -609,19 +692,18 @@ static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfS
 	{
 		for( i = 0; i<500000; i++)			/* The maximum time that the user have to turn the axis to the correct way */
 		{
-			lastRead = MPU_AccelRead(axis);
+			lastRead = AccelRawReading(axis);
 
-			if(lastRead > 9.0)
+			if(lastRead > 9.0 && lastRead < 11.0)
 				break;						/* This means that the axis in pointing up so the calibration can continue */
 
-			snprintf(buffer, sizeof(buffer), "Value below the required\n");
+			snprintf(buffer, sizeof(buffer), "%s Value below the required\n", strDebug);
 			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 		}
 
 		if(i == 500000)						/* Calibration will not proceed */
 		{
-
-			snprintf(buffer, sizeof(buffer), "Maximum time expired \n");
+			snprintf(buffer, sizeof(buffer), "%s Maximum time expired \n", strDebug);
 			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 			return 0;
 		}
@@ -629,8 +711,28 @@ static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfS
 		snprintf(buffer, sizeof(buffer), "Sampling started!\n");
 		HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 
-		for(i = 0; i<numberOfSamples; i++){
-			*accumulated += MPU_AccelRead(axis);
+		HAL_Delay(100);
+
+		i = 0;
+		while(i < numberOfSamples)
+		{
+			lastRead = AccelRawReading(axis);
+			if(lastRead > 8.5 && lastRead < 11.0)								/* A threshold to consider as bias, if the sensor tested has a threshold greater than this, the threshold have to change */
+			{
+				snprintf(buffer, sizeof(buffer), "%s sampling %d \n", strDebug, i);
+				HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+				*accumulatedx += AccelRawReading(X_AXIS);
+				*accumulatedy += AccelRawReading(Y_AXIS);
+				*accumulatedz += AccelRawReading(Z_AXIS);
+
+				i++;
+			}
+			else
+			{
+				snprintf(buffer, sizeof(buffer), "%s sensor isnt in the correct position %f\n", strDebug, lastRead);
+				HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+			}
 		}
 	}
 
@@ -638,26 +740,46 @@ static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfS
 	{
 		for( i = 0; i<500000; i++)			/* The maximum time that the user have to turn the axis to the correct way */
 		{
-			lastRead = MPU_AccelRead(axis);
+			lastRead = AccelRawReading(axis);
 
-			if(lastRead < -9.0)
+			if(lastRead < -9.0 && lastRead > -11.0)
 				break;/* This means that the axis in pointing down so the calibration can continue */
 
-			snprintf(buffer, sizeof(buffer), "Value above the required\n");
+			snprintf(buffer, sizeof(buffer), "%s Value above the required\n", strDebug);
 			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 		}
 
 		if(i == 500000)						/* Calibration will not proceed */
 		{
-			snprintf(buffer, sizeof(buffer), "Maximum time expired \n");
+			snprintf(buffer, sizeof(buffer), "%s Maximum time expired \n", strDebug);
 			HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
 			return 0;
 		}
-		snprintf(buffer, sizeof(buffer), "Sampling started!\n");
-		for(i = 0; i<numberOfSamples; i++){
-			*accumulated += MPU_AccelRead(axis);
-		}
+		snprintf(buffer, sizeof(buffer), "%s Sampling started!\n", strDebug);
+		HAL_Delay(100);																/* These delays that is used in the process are to take in account for the user correct the position required */
 
+		i = 0;
+		while(i < numberOfSamples)
+		{
+			lastRead = AccelRawReading(axis);
+			if(lastRead < -8.5 && lastRead > -11)								/* A threshold to consider as bias, if the sensor tested has a threshold greater than this, the threshold have to change */
+			{
+				snprintf(buffer, sizeof(buffer), "%s sampling %d \n", strDebug, i);
+				HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+
+				*accumulatedx += AccelRawReading(X_AXIS);
+				*accumulatedy += AccelRawReading(Y_AXIS);
+				*accumulatedz += AccelRawReading(Z_AXIS);
+
+				i++;
+			}
+			else
+			{
+				snprintf(buffer, sizeof(buffer), "%s sensor isnt in the correct position %f \n", strDebug, lastRead);
+				HAL_UART_Transmit(uart, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+			}
+		}
 	}
 	return 1;
 }
@@ -670,6 +792,37 @@ static uint8_t oneAxisAccelCalibration(AXIS axis, uint8_t up, uint16_t numberOfS
 uint8_t MPU_GetFlagAccelCalibrated()
 {
 	return flagAccelCalibrated;
+}
+
+
+static void accelCalibration(float *rawData)
+{
+
+	float Y[6][3] =
+	{
+			{0,0,G},				/* Z UP   */
+			{0,0,-G},				/* Z DOWN */
+			{0,G,0},				/* Y UP   */
+			{0,-G,0},				/* Y DOWN */
+			{G,0,0},				/* X UP	  */
+			{-G,0,0}				/* X DOWN */
+	};
+
+	float *wt = malloc(4 * 6 * sizeof(float));
+	float *multW = malloc(4 * 4 * sizeof(float));
+	float *inv = malloc(4 * 4 * sizeof(float));
+	float *temp = malloc(4 * 6 * sizeof(float));
+
+	matrixTransp(rawData, wt, 6, 4);				/* wt */
+	matrixMult(wt, rawData, multW, 4, 6, 4);		/* wt * w */
+	matrixInv(multW, inv, 4, 4);					/* [wt * w]^-1 */
+	matrixMult(inv, wt, temp, 4, 4, 6);				/* [wt * w]^-1 * wt */
+	matrixMult(temp, Y, accelCalibrationParam, 4, 6, 3);	/* Result is the matrix of calibration parameters */
+
+	free(wt);
+	free(inv);
+	free(multW);
+	free(temp);
 }
 
 
@@ -696,6 +849,30 @@ float MPU_GyroRead(uint8_t axis){
 		__MPU_READ(GYRO_ZOUT_H, 2, giro_data, MPU_ADDR_USED);
 		data_return = giro_data[0] << 8 | giro_data[1];
 		return MPU_GyroTransformRead(data_return) - gyrozStaticBias;
+	}
+
+}
+
+static float GyroRawReading(uint8_t axis)
+{
+
+	int16_t data_return = 0;
+	uint8_t giro_data[2];
+
+	if(axis == X_AXIS){
+		__MPU_READ(GYRO_XOUT_H, 2, giro_data, MPU_ADDR_USED);
+		data_return = giro_data[0] << 8 | giro_data[1];
+		return MPU_GyroTransformRead(data_return);
+	}
+	else if(axis == Y_AXIS){
+		__MPU_READ(GYRO_YOUT_H, 2, giro_data, MPU_ADDR_USED);
+		data_return = giro_data[0] << 8 | giro_data[1];
+		return MPU_GyroTransformRead(data_return);
+	}
+	else{
+		__MPU_READ(GYRO_ZOUT_H, 2, giro_data, MPU_ADDR_USED);
+		data_return = giro_data[0] << 8 | giro_data[1];
+		return MPU_GyroTransformRead(data_return);
 	}
 
 }
@@ -759,17 +936,15 @@ void MPU_GyroCalibrate(uint16_t numberOfSamples)
 	float gyroz = 0;
 	for(uint16_t i = 0; i<numberOfSamples; i++)
 	{
-		gyrox += MPU_GyroRead(X_AXIS);
-		gyroy += MPU_GyroRead(Y_AXIS);
-		gyroz += MPU_GyroRead(Z_AXIS);
+		gyrox += GyroRawReading(X_AXIS);
+		gyroy += GyroRawReading(Y_AXIS);
+		gyroz += GyroRawReading(Z_AXIS);
 	}
-
 	gyroxStaticBias = gyrox/numberOfSamples;
 	gyroyStaticBias = gyroy/numberOfSamples;
 	gyrozStaticBias = gyroz/numberOfSamples;
 
 	flagGyroCalibrated = 1;
-
 }
 
 /*
@@ -1213,3 +1388,93 @@ void MPU_ResetWholeIC(){
 	__MPU_WRITE(PWR_MGMT_1, MPU_ADDR_USED);
 	PWR_MGMT_1.data_cmd &= ~(1 << 7);
 }
+
+static void matrixMult(float *m1, float *m2, float *mr, int m1Line, int m1Column, int m2Column)
+{
+	//[a,b] * [b,d] = [a,d]
+    int i, j, k;
+    for (i = 0; i < m1Line; i++) {
+        for (j = 0; j < m2Column; j++) {
+        	mr[i*m2Column + j] = 0;
+            for (k = 0; k < m1Column; k++)
+            	mr[i*m2Column + j] += m1[i*m1Column + k] * m2[k*m2Column + j];
+        }
+    }
+}
+
+static void matrixTransp(float *m1, float *transp, int lines, int columns)
+{
+	for (int i=0;i<lines;i++)
+	{
+		for (int j=0;j<columns;j++)
+		{
+			transp[j*lines + i] = m1[i*columns + j];
+		}
+	}
+
+}
+
+static void matrixInv(float *mfrom, float *inv, int lines, int columns)
+{
+
+	float temp;
+	float *tempS = malloc(lines * columns * sizeof(float));
+
+	matrixCopy(mfrom, tempS, lines, columns);
+	eye(inv, lines, columns);
+
+	for(uint16_t k = 0; k<lines; k++)
+	{
+		temp = tempS[(k * columns + k)];
+		for(uint16_t j = 0; j<lines; j++)
+		{
+			tempS[(k * columns + j)] /= temp;
+			inv[(k * columns + j )] /= temp;
+		}
+		for(uint16_t i = 0; i<lines; i++)
+		{
+			temp = tempS[(i * columns + k)];
+			for(uint16_t j = 0; j<lines; j++)
+			{
+				if(i == k)
+					break;
+
+				tempS[(i*columns + j)] -= tempS[(k*columns + j)] * temp;
+				inv[(i*columns + j)] -= inv[(k*columns + j)] * temp;
+			}
+		}
+	}
+
+	free(tempS);
+}
+
+static void matrixCopy(float *mfrom, float *mto, int lines, int columns)
+{
+
+	for(int i = 0; i<lines; i++)
+	{
+		for(int j = 0; j<columns; j++)
+		{
+			mto[ (i * columns + j ) ] = mfrom[ (i * columns + j) ];
+		}
+	}
+}
+
+
+static void eye(float *m, int lines, int columns)
+{
+
+	for(int i = 0; i<lines; i++)
+	{
+
+		for(int j = 0; j<columns; j++)
+		{
+			m[(i*columns + j)] = 0;
+
+			if(i == j)
+				m[(i*columns + j)] = 1;
+		}
+	}
+
+}
+
