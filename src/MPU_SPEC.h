@@ -371,5 +371,6 @@ float MPU_MagRead(AXIS axis);
 uint8_t MPU_MagWhoAmI();
 uint8_t MPU_MagConfigControl2(uint8_t reset);
 void MPU_MagI2CDisable();
+void MPU_MagCalibrate(uint16_t numberOfSamples, UART_HandleTypeDef *uart);
 
 #endif /* INC_MPU_SPEC_H_ */

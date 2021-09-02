@@ -13,6 +13,7 @@
 #include <string.h>
 #include<stdio.h>
 #include<stdlib.h>
+#include<math.h>
 
 #define G 9.8065
 
@@ -32,6 +33,7 @@ static void matrixTransp(float *m1, float *transp, int lines, int columns);
 static void matrixInv(float *mfrom, float *mto, int lines, int columns);
 static void matrixCopy(float *mfrom, float *mto, int lines, int columns);
 static void eye(float *m, int lines, int columns);
+
 static void hardCodedAccelParam();
 
 void __MAG_WRITE(MPU_REGISTER reg_to_write);
@@ -47,8 +49,25 @@ static float gyrozStaticBias;
 static uint8_t flagGyroCalibrated = 0;
 
 static uint8_t flagAccelCalibrated = 0;
+static uint8_t flagMagCalibrated = 0;
 
 static float *accelCalibrationParam;
+static float magCalibrationParam[6];
+
+static float X0;
+static float Y0;
+static float Z0;
+
+static float M_OSx;
+static float M_OSy;
+static float M_OSz;
+
+static float A,B,C;
+
+static float M_SCx;
+static float M_SCy;
+static float M_SCz;
+
 /*
  * @brief: MPU initialization function
  * @param: i2c - Specify what i2c peripheral will be used, the values can be ( USE_I2C1, USE_I2C2 or USE_I2C3 )
@@ -84,6 +103,7 @@ void MPU_Init(uint8_t i2c, uint8_t mpu_i2c_addr, MPU_ACCEL_SCALE accel_scale, MP
 
 	accelCalibrationParam = malloc(4 * 3 * sizeof(float));
 
+
 	hardCodedAccelParam();
 
 }
@@ -94,12 +114,15 @@ static void hardCodedAccelParam()
 	accelCalibrationParam[0] = 1.0041;
 	accelCalibrationParam[1] = 0.017506;
 	accelCalibrationParam[2] = -0.083167;
+
 	accelCalibrationParam[3] = 0.0164;
 	accelCalibrationParam[4] = 1.0067;
 	accelCalibrationParam[5] = 0.029136;
+
 	accelCalibrationParam[6] = -0.025811;
 	accelCalibrationParam[7] = 0.040776;
 	accelCalibrationParam[8] = 0.99886;
+
 	accelCalibrationParam[9] = -0.59662;
 	accelCalibrationParam[10] = -0.12791;
 	accelCalibrationParam[11] = 1.4257;
@@ -326,6 +349,12 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
 	float rawAccel[4];
 
 
+	if(!flagAccelCalibrated)
+	{
+		M_OSx = M_OSy = M_OSz = 0;
+		M_SCx = M_SCy = M_SCz = 1;
+	}
+
 	__MPU_READ(ACCEL_XOUT_H, 14, return_data, MPU_ADDR_USED);
 
 	raw_data[0] =  return_data[0] << 8 | return_data[1];
@@ -363,9 +392,9 @@ uint8_t MPU_ReadAllSensores(float accel_data[], float gyro_data[], float mag_dat
 	raw_mag_data[1] = mag_return[2] | mag_return[3] << 8;
 	raw_mag_data[2] = mag_return[4] | mag_return[5] << 8;
 
-	mag_data[0] = AK8963_SENSITIVITY * raw_mag_data[0] * magx_Adj;
-	mag_data[1] = AK8963_SENSITIVITY * raw_mag_data[1] * magy_Adj;
-	mag_data[2] = AK8963_SENSITIVITY * raw_mag_data[2] * magz_Adj;
+	mag_data[0] = (AK8963_SENSITIVITY * raw_mag_data[0] * magx_Adj - M_OSx)/M_SCx;
+	mag_data[1] = (AK8963_SENSITIVITY * raw_mag_data[1] * magy_Adj - M_OSy)/M_SCy;
+	mag_data[2] = (AK8963_SENSITIVITY * raw_mag_data[2] * magz_Adj - M_OSz)/M_SCz;
 
 	}
 
@@ -412,20 +441,20 @@ float MPU_AccelRead(uint8_t axis){
 	data_return = accel_data[4] << 8 | accel_data[5];
 	accelz = MPU_AccelTransformRead(data_return);
 
-	rawAccel[0] = accelz;
+	rawAccel[0] = accelx;
 	rawAccel[1] = accely;
-	rawAccel[2] = accelx;
+	rawAccel[2] = accelz;
 	rawAccel[3] = 1;
 
 	matrixMult(rawAccel, accelCalibrationParam, calAccel, 1, 4, 3);
 	if(axis == X_AXIS){
-		return calAccel[2];
+		return calAccel[0];
 	}
 	else if(axis == Y_AXIS){
 		return calAccel[1];
 	}
 	else{
-		return calAccel[0];
+		return calAccel[2];
 	}
 
 }
@@ -1176,6 +1205,12 @@ float MPU_MagRead(AXIS axis){
 
 	__MAG_READ(ST1, 1, &st);
 
+	if(!flagAccelCalibrated)
+	{
+		M_OSx = M_OSy = M_OSz = 0;
+		M_SCx = M_SCy = M_SCz = 1;
+	}
+
 	if(st & 0x01){							/* Check if DRDY bit was set to 1 */
 
 		uint8_t mag_vet[2];
@@ -1187,6 +1222,8 @@ float MPU_MagRead(AXIS axis){
 
 			magx = mag_vet[1] << 8 | mag_vet[0];
 			to_return = AK8963_SENSITIVITY * magx * magx_Adj;
+			to_return = (to_return - M_OSx)/M_SCx;
+
 		}
 		else if(axis == Y_AXIS){
 			int16_t magy;
@@ -1195,6 +1232,7 @@ float MPU_MagRead(AXIS axis){
 
 			magy = mag_vet[1] << 8 | mag_vet[0];
 			to_return = AK8963_SENSITIVITY * magy * magy_Adj;
+			to_return = (to_return - M_OSy)/M_SCy;
 		}else{
 			int16_t magz;
 
@@ -1202,6 +1240,7 @@ float MPU_MagRead(AXIS axis){
 
 			magz = mag_vet[1] << 8 | mag_vet[0];
 			to_return = AK8963_SENSITIVITY * magz * magz_Adj;
+			to_return = (to_return - M_OSz)/M_SCz;
 		}
 		__MAG_READ(ST2, 1, &st);
 	}
@@ -1341,6 +1380,78 @@ uint8_t __MAG_READ(MPU_REGISTER reg_to_read, uint8_t bytes, uint8_t data_vet[])
 }
 
 /*
+ *	@brief:	Calibrate magnetometer data. Move MPU making 8 shaped movements
+ *  @param:
+ *  		numberOfSamples: number of magnetometer samples to be collected
+ *  		uart: A UART_HandleTypeDef to debug
+ *
+ *
+ */
+void MPU_MagCalibrate(uint16_t numberOfSamples, UART_HandleTypeDef *uart)
+{
+
+	float *rawData = malloc(numberOfSamples * 6 * sizeof(float));
+	float *w = malloc(numberOfSamples * sizeof(float));
+
+	float magX, magY, magZ;
+
+	char debugBuffer[200];
+
+	sprintf(debugBuffer, "Starting the sampling process\n");
+	HAL_UART_Transmit(uart, (uint8_t *)debugBuffer, strlen(debugBuffer), HAL_MAX_DELAY);
+
+	for(uint i = 0; i<numberOfSamples; i++)
+	{
+
+		magX = MPU_MagRead(X_AXIS);
+		magY = MPU_MagRead(Y_AXIS);
+		magZ = MPU_MagRead(Z_AXIS);
+
+		rawData[i * numberOfSamples] = magX;
+		rawData[i * numberOfSamples + 1] = magY;
+		rawData[i * numberOfSamples + 2] = magZ;
+		rawData[i * numberOfSamples + 3] = -(magY * magY);
+		rawData[i * numberOfSamples + 4] = -(magZ * magZ);
+		rawData[i * numberOfSamples + 5] = 1;
+
+		w[i] = magX * magX;
+	}
+
+
+	/* Last square method */
+	float *rawDataT = malloc(6 * numberOfSamples * sizeof(float));
+	float *r1 = malloc(6 * 6 * sizeof(float));
+	float *inv = malloc(6 * 6 * sizeof(float));
+	float *r2 = malloc(6 * numberOfSamples * sizeof(float));
+
+	matrixTransp(rawData, rawDataT, numberOfSamples, 6);		/* H^t*/
+	matrixMult(rawDataT, rawData, r1, 6, numberOfSamples, 6);	/* H^t * H */
+	matrixInv(r1, inv, 6, 6);									/* (H^t * H)^(-1) */
+	matrixMult(inv, rawDataT, r2, 6, 6, numberOfSamples);		/* (H^t * H)^(-1) * H^t */
+	matrixMult(r2, w, magCalibrationParam, 6, numberOfSamples, 1);		/* (H^t * H)^(-1) * H^t * w */
+
+	flagMagCalibrated = 1;
+
+	M_OSx = X0 = magCalibrationParam[0]/2;
+	M_OSy = Y0 = magCalibrationParam[1]/(2 * magCalibrationParam[3]);
+	M_OSz = Z0 = magCalibrationParam[2]/(2 * magCalibrationParam[4]);
+
+	A = magCalibrationParam[5] + pow(X0, 2) + magCalibrationParam[3] * pow(Y0, 2) + magCalibrationParam[4] * pow(Z0, 2);
+	B = A / magCalibrationParam[3];
+	C = A / magCalibrationParam[4];
+
+	M_SCx = sqrt(A);
+	M_SCy = sqrtf(B);
+	M_SCz = sqrt(C);
+
+	free(rawData);
+	free(w);
+	free(rawDataT);
+	free(r1);
+	free(r2);
+}
+
+/*
  * @brief: Disable one or more MPU components
  * @param:
  * 		  disable_accel can be one value of @MPU_DISABLE_AXIS
@@ -1460,7 +1571,6 @@ static void matrixCopy(float *mfrom, float *mto, int lines, int columns)
 	}
 }
 
-
 static void eye(float *m, int lines, int columns)
 {
 
@@ -1477,4 +1587,5 @@ static void eye(float *m, int lines, int columns)
 	}
 
 }
+
 
